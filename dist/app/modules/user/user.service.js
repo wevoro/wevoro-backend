@@ -200,6 +200,16 @@ const updateOrCreateUserDocuments = (id, files, payload) => __awaiter(void 0, vo
     result = yield documents_model_1.Documents.findOneAndUpdate({ user: id }, { $set: fileMap }, { new: true });
     return result;
 });
+const handleCalculatePartnerPercentage = (_id) => __awaiter(void 0, void 0, void 0, function* () {
+    const offersSent = yield offer_model_1.Offer.countDocuments({ partner: _id });
+    const acceptedOffers = yield offer_model_1.Offer.countDocuments({
+        partner: _id,
+        status: 'accepted',
+    });
+    const jobConversion = (acceptedOffers / offersSent) * 100 || 0;
+    const jobConversionPercentage = Number(jobConversion.toFixed(2));
+    return { offersSent, jobConversionPercentage };
+});
 const getUserProfile = (user) => __awaiter(void 0, void 0, void 0, function* () {
     const { _id, role } = user;
     const existingUser = yield user_model_1.User.findById(_id);
@@ -209,8 +219,8 @@ const getUserProfile = (user) => __awaiter(void 0, void 0, void 0, function* () 
     const personalInfo = yield personal_info_model_1.PersonalInfo.findOne({ user: _id });
     const sharableLink = `${config_1.default.frontend_url.prod}/pro/${_id}`;
     let completionPercentage = 0;
-    let offersSent = 0;
-    let jobConversionPercentage = 0;
+    let offersSentData = 0;
+    let jobConversionPData = 0;
     if (role === user_1.ENUM_USER_ROLE.PRO) {
         const professionalInfo = yield professional_info_model_1.ProfessionalInfo.findOne({ user: _id });
         const documents = yield documents_model_1.Documents.findOne({ user: _id });
@@ -235,13 +245,9 @@ const getUserProfile = (user) => __awaiter(void 0, void 0, void 0, function* () 
             'address',
         ];
         completionPercentage = (0, calculatePartnerPercentage_1.calculatePartnerPercentage)(fields, personalInfo);
-        offersSent = yield offer_model_1.Offer.countDocuments({ partner: _id });
-        const acceptedOffers = yield offer_model_1.Offer.countDocuments({
-            partner: _id,
-            status: 'accepted',
-        });
-        const jobConversion = (acceptedOffers / offersSent) * 100 || 0;
-        jobConversionPercentage = Number(jobConversion.toFixed(2));
+        const { offersSent, jobConversionPercentage } = yield handleCalculatePartnerPercentage(_id);
+        offersSentData = offersSent;
+        jobConversionPData = jobConversionPercentage;
     }
     const result = yield user_model_1.User.aggregate([
         {
@@ -302,14 +308,14 @@ const getUserProfile = (user) => __awaiter(void 0, void 0, void 0, function* () 
                 offersSent: {
                     $cond: {
                         if: { $eq: [role, user_1.ENUM_USER_ROLE.PARTNER] },
-                        then: offersSent,
+                        then: offersSentData,
                         else: 0,
                     },
                 },
                 jobConversionPercentage: {
                     $cond: {
                         if: { $eq: [role, user_1.ENUM_USER_ROLE.PARTNER] },
-                        then: jobConversionPercentage,
+                        then: jobConversionPData,
                         else: 0,
                     },
                 },
@@ -367,6 +373,8 @@ const getUserById = (id) => __awaiter(void 0, void 0, void 0, function* () {
                 professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
                 documents: { $arrayElemAt: ['$documents', 0] },
                 sharableLink: sharableLink,
+                // offersSent: offersSentData,
+                // jobConversionPercentage: jobConversionPData,
             },
         },
     ]);

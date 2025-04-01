@@ -273,6 +273,18 @@ const updateOrCreateUserDocuments = async (
   return result;
 };
 
+const handleCalculatePartnerPercentage = async (_id: string) => {
+  const offersSent = await Offer.countDocuments({ partner: _id });
+  const acceptedOffers = await Offer.countDocuments({
+    partner: _id,
+    status: 'accepted',
+  });
+  const jobConversion = (acceptedOffers / offersSent) * 100 || 0;
+  const jobConversionPercentage = Number(jobConversion.toFixed(2));
+
+  return { offersSent, jobConversionPercentage };
+};
+
 const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
   const { _id, role } = user;
 
@@ -287,8 +299,8 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
   const sharableLink = `${config.frontend_url.prod}/pro/${_id}`;
 
   let completionPercentage = 0;
-  let offersSent = 0;
-  let jobConversionPercentage = 0;
+  let offersSentData = 0;
+  let jobConversionPData = 0;
 
   if (role === ENUM_USER_ROLE.PRO) {
     const professionalInfo = await ProfessionalInfo.findOne({ user: _id });
@@ -316,13 +328,10 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
       'address',
     ];
     completionPercentage = calculatePartnerPercentage(fields, personalInfo);
-    offersSent = await Offer.countDocuments({ partner: _id });
-    const acceptedOffers = await Offer.countDocuments({
-      partner: _id,
-      status: 'accepted',
-    });
-    const jobConversion = (acceptedOffers / offersSent) * 100 || 0;
-    jobConversionPercentage = Number(jobConversion.toFixed(2));
+    const { offersSent, jobConversionPercentage } =
+      await handleCalculatePartnerPercentage(_id as string);
+    offersSentData = offersSent;
+    jobConversionPData = jobConversionPercentage;
   }
 
   const result = await User.aggregate([
@@ -386,14 +395,14 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
         offersSent: {
           $cond: {
             if: { $eq: [role, ENUM_USER_ROLE.PARTNER] },
-            then: offersSent,
+            then: offersSentData,
             else: 0,
           },
         },
         jobConversionPercentage: {
           $cond: {
             if: { $eq: [role, ENUM_USER_ROLE.PARTNER] },
-            then: jobConversionPercentage,
+            then: jobConversionPData,
             else: 0,
           },
         },
@@ -409,6 +418,7 @@ const getUserById = async (id: string): Promise<IUser | null> => {
     throw new ApiError(httpStatus.BAD_REQUEST, 'User id is required');
   }
   const sharableLink = `${config.frontend_url.prod}/pro/${id}`;
+
   const result = await User.aggregate([
     {
       $match: {
@@ -456,6 +466,8 @@ const getUserById = async (id: string): Promise<IUser | null> => {
 
         documents: { $arrayElemAt: ['$documents', 0] },
         sharableLink: sharableLink,
+        // offersSent: offersSentData,
+        // jobConversionPercentage: jobConversionPData,
       },
     },
   ]);
