@@ -68,11 +68,11 @@ const updateOrCreateUserPersonalInformation = (0, catchAsync_1.default)((req, re
     });
 }));
 const updateOrCreateUserProfessionalInformation = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    var _b;
+    var _a;
     const data = JSON.parse(req.body.data || '{}');
     const files = req.files;
     const queryId = req.query.id;
-    const id = queryId ? queryId : (_b = req.user) === null || _b === void 0 ? void 0 : _b._id;
+    const id = queryId ? queryId : (_a = req.user) === null || _a === void 0 ? void 0 : _a._id;
     const result = yield user_service_1.UserService.updateOrCreateUserProfessionalInformation(data, id, files);
     (0, sendResponse_1.default)(res, {
         statusCode: http_status_1.default.OK,
@@ -82,11 +82,11 @@ const updateOrCreateUserProfessionalInformation = (0, catchAsync_1.default)((req
     });
 }));
 const updateOrCreateUserDocuments = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    var _c;
+    var _a;
     const files = req.files;
     const payload = JSON.parse(req.body.data || '{}');
     const queryId = req.query.id;
-    const id = queryId ? queryId : (_c = req.user) === null || _c === void 0 ? void 0 : _c._id;
+    const id = queryId ? queryId : (_a = req.user) === null || _a === void 0 ? void 0 : _a._id;
     const result = yield user_service_1.UserService.updateOrCreateUserDocuments(id, files, payload);
     (0, sendResponse_1.default)(res, {
         statusCode: http_status_1.default.OK,

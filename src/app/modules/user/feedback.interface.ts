@@ -1,4 +1,4 @@
-export interface IFeedback {
+export type IFeedback = {
   _id?: string;
   user?: string;
   message: string;

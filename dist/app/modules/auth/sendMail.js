@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendEmail = void 0;
+exports.sendEmail = sendEmail;
 const nodemailer_1 = __importDefault(require("nodemailer"));
 const config_1 = __importDefault(require("../../../config"));
 function sendEmail(to, subject, html) {
@@ -41,4 +41,3 @@ function sendEmail(to, subject, html) {
         }
     });
 }
-exports.sendEmail = sendEmail;

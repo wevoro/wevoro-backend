@@ -4,15 +4,39 @@ import { Schema, model } from 'mongoose';
 const FeedbackSchema = new Schema<any>(
   {
     user: {
-      type: Schema.Types.ObjectId,
-      ref: 'User',
+      image: {
+        type: String,
+        required: false,
+        default: 'https://med.gov.bz/wp-content/uploads/2020/08/dummy-profile-pic.jpg',
+      },
+      role: {
+        type: String,
+        required: true,
+      },
+      name: {
+        type: String,
+        required: true,
+      },
+      email: {
+        type: String,
+        required: true,
+      },
+      phone: {
+        type: String,
+        required: false,
+      },
+      
+      address: {
+        type: String,
+        required: false,
+      },
     },
     message: {
       type: String,
     },
     feedbackType: {
       type: String,
-      enum: ['Feature request', 'Report a bug to fix', 'Others'],
+      enum: ['Feature request', 'Report a bug to fix',  'Others'],
       default: 'Others',
     },
     selections: {
@@ -35,3 +59,13 @@ const FeedbackSchema = new Schema<any>(
 );
 
 export const Feedback = model<any>('Feedback', FeedbackSchema);
+
+
+// sample data
+
+
+
+
+
+
+
