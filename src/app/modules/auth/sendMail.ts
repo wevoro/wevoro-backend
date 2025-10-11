@@ -15,7 +15,7 @@ export async function sendEmail(to: string, subject: string, html: string) {
 
     const result = await transporter.sendMail({
       from: config.email,
-      to, // list of receivers
+      to,
       subject, // Subject line
       html, // html body
     });
