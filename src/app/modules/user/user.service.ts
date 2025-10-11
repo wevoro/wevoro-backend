@@ -86,7 +86,7 @@ const deleteAccount = async (user: Partial<IUser>) => {
     const userId = user._id;
     const userRole = user.role;
 
-    // Delete user from User collection
+    
     await User.findByIdAndDelete(userId, { session });
 
     console.log('inside delete account');
