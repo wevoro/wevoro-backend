@@ -152,7 +152,9 @@ const updateOrCreateUserPersonalInformation = async (
   console.log({ file, payload });
 
   if (file?.path) {
-    const cloudRes = await cloudinary.v2.uploader.upload(file.path);
+    const cloudRes = await cloudinary.v2.uploader.upload(file.path,{
+      upload_preset: 'wevoro',
+    });
     payload.image = cloudRes.secure_url;
   }
 
@@ -183,7 +185,9 @@ const updateOrCreateUserProfessionalInformation = async (
 
   if (files.length > 0) {
     for (const file of files) {
-      const cloudRes = await cloudinary.v2.uploader.upload(file.path);
+      const cloudRes = await cloudinary.v2.uploader.upload(file.path,{
+        upload_preset: 'wevoro',
+      });
 
       fileMap[file.originalname] = cloudRes.secure_url;
     }
@@ -246,7 +250,9 @@ const updateOrCreateUserDocuments = async (
 
   if (Object.keys(fileMap).length > 0) {
     for (const file of Object.keys(fileMap)) {
-      const cloudRes = await cloudinary.v2.uploader.upload(fileMap[file]);
+        const cloudRes = await cloudinary.v2.uploader.upload(fileMap[file],{
+        upload_preset: 'wevoro',
+      });
       // console.log('cloudRes', cloudRes);
       fileMap[file] = cloudRes.secure_url;
     }
@@ -538,7 +544,9 @@ const updateCoverImage = async (
     throw new ApiError(httpStatus.BAD_REQUEST, 'File is required');
   }
 
-  const cloudRes = await cloudinary.v2.uploader.upload(file.path);
+  const cloudRes = await cloudinary.v2.uploader.upload(file.path,{
+    upload_preset: 'wevoro',
+  });
   const result = await User.findByIdAndUpdate(
     id,
     { coverImage: cloudRes.secure_url },
@@ -775,7 +783,9 @@ const uploadOfferDocuments = async (files: any, id: string): Promise<any> => {
   const fileMap: any = {};
   if (files.length > 0) {
     for (const file of files) {
-      const cloudRes = await cloudinary.v2.uploader.upload(file.path);
+      const cloudRes = await cloudinary.v2.uploader.upload(file.path,{
+        upload_preset: 'wevoro',
+      });
       fileMap[file.originalname] = cloudRes.secure_url;
     }
   }
