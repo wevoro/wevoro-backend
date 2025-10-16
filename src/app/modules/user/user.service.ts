@@ -149,7 +149,7 @@ const updateOrCreateUserPersonalInformation = async (
     user: id,
   });
 
-  // console.log({ file, payload });
+  console.log({ file, payload });
 
   if (file?.path) {
     const cloudRes = await cloudinary.v2.uploader.upload(file.path);
@@ -175,7 +175,9 @@ const updateOrCreateUserProfessionalInformation = async (
   id: string,
   files: any
 ): Promise<any> => {
+  console.log('🚀 ~ updateOrCreateUserProfessionalInformation ~ files:', files)
   const { certifications }: any = payload;
+ 
 
   const fileMap: any = {};
 
@@ -216,7 +218,7 @@ const updateOrCreateUserProfessionalInformation = async (
   if (!isProfessionalInformationExist) {
     result = await ProfessionalInfo.create({ user: id, ...payload });
   }
-
+  console.log('🚀 ~ updateOrCreateUserProfessionalInformation ~ payload:', payload)
   result = await ProfessionalInfo.findOneAndUpdate(
     { user: id },
     { $set: payload },
