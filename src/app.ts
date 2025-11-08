@@ -6,8 +6,12 @@ import httpStatus from 'http-status';
 import globalErrorHandler from './app/middlewares/globalErrorHandler';
 import routes from './app/routes';
 
+import compression from 'compression';
+
 const app: Application = express();
 
+
+app.use(compression());
 app.use(cors());
 app.use(cors({ origin: 'http://localhost:3000', credentials: true }));
 app.use(cookieParser());
