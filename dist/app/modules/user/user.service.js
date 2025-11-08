@@ -77,7 +77,6 @@ const deleteAccount = (user) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userId = user._id;
         const userRole = user.role;
-        // Delete user from User collection
         yield user_model_1.User.findByIdAndDelete(userId, { session });
         console.log('inside delete account');
         // Delete user from Documents, PersonalInformation, ProfessionalInformation collections
@@ -126,9 +125,11 @@ const updateOrCreateUserPersonalInformation = (payload, id, file) => __awaiter(v
     const isPersonalInformationExist = yield personal_info_model_1.PersonalInfo.findOne({
         user: id,
     });
-    // console.log({ file, payload });
+    console.log({ file, payload });
     if (file === null || file === void 0 ? void 0 : file.path) {
-        const cloudRes = yield cloudinary_1.default.v2.uploader.upload(file.path);
+        const cloudRes = yield cloudinary_1.default.v2.uploader.upload(file.path, {
+            upload_preset: 'wevoro',
+        });
         payload.image = cloudRes.secure_url;
     }
     let result;
@@ -139,11 +140,14 @@ const updateOrCreateUserPersonalInformation = (payload, id, file) => __awaiter(v
     return result;
 });
 const updateOrCreateUserProfessionalInformation = (payload, id, files) => __awaiter(void 0, void 0, void 0, function* () {
+    console.log('🚀 ~ updateOrCreateUserProfessionalInformation ~ files:', files);
     const { certifications } = payload;
     const fileMap = {};
     if (files.length > 0) {
         for (const file of files) {
-            const cloudRes = yield cloudinary_1.default.v2.uploader.upload(file.path);
+            const cloudRes = yield cloudinary_1.default.v2.uploader.upload(file.path, {
+                upload_preset: 'wevoro',
+            });
             fileMap[file.originalname] = cloudRes.secure_url;
         }
     }
@@ -166,6 +170,7 @@ const updateOrCreateUserProfessionalInformation = (payload, id, files) => __awai
     if (!isProfessionalInformationExist) {
         result = yield professional_info_model_1.ProfessionalInfo.create(Object.assign({ user: id }, payload));
     }
+    console.log('🚀 ~ updateOrCreateUserProfessionalInformation ~ payload:', payload);
     result = yield professional_info_model_1.ProfessionalInfo.findOneAndUpdate({ user: id }, { $set: payload }, { new: true });
     return result;
 });
@@ -183,7 +188,9 @@ const updateOrCreateUserDocuments = (id, files, payload) => __awaiter(void 0, vo
     }
     if (Object.keys(fileMap).length > 0) {
         for (const file of Object.keys(fileMap)) {
-            const cloudRes = yield cloudinary_1.default.v2.uploader.upload(fileMap[file]);
+            const cloudRes = yield cloudinary_1.default.v2.uploader.upload(fileMap[file], {
+                upload_preset: 'wevoro',
+            });
             // console.log('cloudRes', cloudRes);
             fileMap[file] = cloudRes.secure_url;
         }
@@ -434,7 +441,9 @@ const updateCoverImage = (id, file) => __awaiter(void 0, void 0, void 0, functio
     if (!(file === null || file === void 0 ? void 0 : file.path)) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'File is required');
     }
-    const cloudRes = yield cloudinary_1.default.v2.uploader.upload(file.path);
+    const cloudRes = yield cloudinary_1.default.v2.uploader.upload(file.path, {
+        upload_preset: 'wevoro',
+    });
     const result = yield user_model_1.User.findByIdAndUpdate(id, { coverImage: cloudRes.secure_url }, { new: true });
     return result;
 });
@@ -641,7 +650,9 @@ const uploadOfferDocuments = (files, id) => __awaiter(void 0, void 0, void 0, fu
     const fileMap = {};
     if (files.length > 0) {
         for (const file of files) {
-            const cloudRes = yield cloudinary_1.default.v2.uploader.upload(file.path);
+            const cloudRes = yield cloudinary_1.default.v2.uploader.upload(file.path, {
+                upload_preset: 'wevoro',
+            });
             fileMap[file.originalname] = cloudRes.secure_url;
         }
     }

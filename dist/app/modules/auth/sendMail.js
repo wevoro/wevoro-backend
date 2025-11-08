@@ -28,9 +28,9 @@ function sendEmail(to, subject, html) {
                 },
             });
             const result = yield transporter.sendMail({
-                from: config_1.default.email, // sender address
-                to, // list of receivers
-                subject, // Subject line
+                from: config_1.default.email,
+                to,
+                subject,
                 html, // html body
             });
             return result;

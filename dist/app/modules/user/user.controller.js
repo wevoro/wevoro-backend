@@ -57,6 +57,7 @@ const updateAllUsers = (0, catchAsync_1.default)((req, res) => __awaiter(void 0,
 const updateOrCreateUserPersonalInformation = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     const data = JSON.parse(req.body.data || '{}');
+    console.log('🚀 ~ data:', data);
     const queryId = req.query.id;
     const id = queryId ? queryId : (_a = req.user) === null || _a === void 0 ? void 0 : _a._id;
     const result = yield user_service_1.UserService.updateOrCreateUserPersonalInformation(data, id, req.file);
@@ -70,6 +71,7 @@ const updateOrCreateUserPersonalInformation = (0, catchAsync_1.default)((req, re
 const updateOrCreateUserProfessionalInformation = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     const data = JSON.parse(req.body.data || '{}');
+    console.log('🚀 ~ data:', data);
     const files = req.files;
     const queryId = req.query.id;
     const id = queryId ? queryId : (_a = req.user) === null || _a === void 0 ? void 0 : _a._id;
