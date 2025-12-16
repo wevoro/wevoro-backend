@@ -352,6 +352,18 @@ const deleteAccount: RequestHandler = catchAsync(
     });
   }
 );
+const autoFillAI: RequestHandler = catchAsync(
+  async (req: Request, res: Response) => {
+    const result = await UserService.autoFillAI(req.user as Partial<IUser>, req.file);
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: 'Auto fill successfully!',
+      data: result,
+    });
+  }
+);
 
 export const UserController = {
   createUser,
@@ -378,4 +390,5 @@ export const UserController = {
   deleteAccount,
   getUsers,
   updateAllUsers,
+  autoFillAI,
 };

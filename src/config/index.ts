@@ -29,4 +29,5 @@ export default {
     local: process.env.FRONTEND_URL_LOCAL,
     prod: process.env.FRONTEND_URL_PROD,
   },
+  openai_api_key: process.env.OPENAI_API_KEY,
 };

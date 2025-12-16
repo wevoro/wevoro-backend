@@ -1,6 +1,6 @@
 import httpStatus from 'http-status';
 import ApiError from '../../../errors/ApiError';
-
+import { PDFParse } from 'pdf-parse';
 import { IUser } from './user.interface';
 import { User } from './user.model';
 
@@ -855,6 +855,127 @@ const markAllNotificationsAsRead = async (
   return result;
 };
 
+const autoFillAI = async (user: Partial<IUser>, file: any): Promise<any> => {
+  if (!file?.path) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Resume file is required');
+  }
+
+  // Parse PDF to extract text using pdf-parse v2 API
+  const parser = new PDFParse({ url: file.path });
+  const pdfData = await parser.getText();
+  await parser.destroy();
+  const resumeText = pdfData.text;
+
+  if (!resumeText || resumeText.trim().length === 0) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Could not extract text from the PDF');
+  }
+
+  // Define the expected JSON schema for OpenAI
+  const systemPrompt = `You are a resume parser AI. Extract information from the provided resume text and return a clean JSON object with the following structure:
+
+{
+  "personalInformation": {
+    "firstName": "string or null",
+    "lastName": "string or null",
+    "phone": "string or null",
+    "bio": "string or null (short professional summary)",
+    "dateOfBirth": "ISO date string or null",
+    "gender": "Male, Female, Other, or null",
+    "address": {
+      "street": "string or null",
+      "city": "string or null",
+      "state": "string or null",
+      "zipCode": "string or null",
+      "country": "string or null"
+    }
+  },
+  "professionalInformation": {
+    "education": [
+      {
+        "degree": "string",
+        "institution": "string",
+        "yearOfGraduation": number or null,
+        "fieldOfStudy": "string or null",
+        "grade": "string or null (GPA or grade)"
+      }
+    ],
+    "experience": [
+      {
+        "jobTitle": "string",
+        "companyName": "string",
+        "duration": "string (e.g., 'Jan 2020 - Dec 2022' or '3 years')",
+        "responsibilities": "string (brief description of role)"
+      }
+    ],
+    "certifications": [
+      {
+        "title": "string",
+        "institution": "string or null",
+        "issueDate": "ISO date string or null",
+        "expireDate": "ISO date string or null",
+        "credentialId": "string or null",
+        "credentialUrl": "string or null"
+      }
+    ],
+    "skills": ["string array of skills"]
+  }
+}
+
+Rules:
+1. Return ONLY the JSON object, no additional text, markdown, or explanation.
+2. Use null for fields that cannot be determined from the resume.
+3. For arrays (education, experience, certifications, skills), return an empty array [] if no items found.
+4. Ensure dates are in ISO format (YYYY-MM-DD) where possible.
+5. Extract a professional bio/summary if available, otherwise use null.
+6. Parse the full name into firstName and lastName.`;
+
+  // Call OpenAI API
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer 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`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Parse this resume and extract the information:\n\n${resumeText}` },
+      ],
+      temperature: 0.1,
+      max_tokens: 2000,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    console.error('OpenAI API error:', errorData);
+    throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to process resume with AI');
+  }
+
+  const openaiResponse = await response.json();
+  const content = openaiResponse.choices?.[0]?.message?.content;
+
+  if (!content) {
+    throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'No response from AI');
+  }
+
+  
+    let cleanedContent = content.trim();
+    if (cleanedContent.startsWith('```json')) {
+      cleanedContent = cleanedContent.slice(7);
+    } else if (cleanedContent.startsWith('```')) {
+      cleanedContent = cleanedContent.slice(3);
+    }
+    if (cleanedContent.endsWith('```')) {
+      cleanedContent = cleanedContent.slice(0, -3);
+    }
+    cleanedContent = cleanedContent.trim();
+
+    const parsedData = JSON.parse(cleanedContent);
+    return parsedData;
+};
+
 export const UserService = {
   createUser,
   updateUser,
@@ -880,4 +1001,5 @@ export const UserService = {
   deleteAccount,
   getUsers,
   updateAllUsers,
+  autoFillAI,
 };
