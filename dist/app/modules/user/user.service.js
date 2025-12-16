@@ -15,6 +15,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.UserService = void 0;
 const http_status_1 = __importDefault(require("http-status"));
 const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
+const pdf_parse_1 = require("pdf-parse");
 const user_model_1 = require("./user.model");
 const cloudinary_1 = __importDefault(require("cloudinary"));
 const mongoose_1 = __importDefault(require("mongoose"));
@@ -29,6 +30,7 @@ const personal_info_model_1 = require("./personal-info.model");
 const pro_model_1 = require("./pro.model");
 const professional_info_model_1 = require("./professional-info.model");
 const waitlist_model_1 = require("./waitlist.model");
+const bunny_upload_1 = require("../../../helpers/bunny-upload");
 cloudinary_1.default.v2.config({
     cloud_name: config_1.default.cloudinary.cloud_name,
     api_key: config_1.default.cloudinary.api_key,
@@ -140,28 +142,35 @@ const updateOrCreateUserPersonalInformation = (payload, id, file) => __awaiter(v
     return result;
 });
 const updateOrCreateUserProfessionalInformation = (payload, id, files) => __awaiter(void 0, void 0, void 0, function* () {
-    console.log('🚀 ~ updateOrCreateUserProfessionalInformation ~ files:', files);
     const { certifications } = payload;
+    // Upload files to Cloudinary and create a map indexed by certification position
+    // Files are named as: certification_0, certification_1, etc.
     const fileMap = {};
-    if (files.length > 0) {
+    if (files && files.length > 0) {
         for (const file of files) {
-            const cloudRes = yield cloudinary_1.default.v2.uploader.upload(file.path, {
-                upload_preset: 'wevoro',
-            });
-            fileMap[file.originalname] = cloudRes.secure_url;
+            // Extract index from filename (e.g., "certification_0" -> 0)
+            const match = file.originalname.match(/certification_(\d+)/);
+            if (match) {
+                const index = parseInt(match[1], 10);
+                // const cloudRes = await cloudinary.v2.uploader.upload(file.path, {
+                //   upload_preset: 'Wevoro',
+                // });
+                const bunnyRes = yield (0, bunny_upload_1.uploadFile)(file);
+                console.log('🚀 ~ updateOrCreateUserProfessionalInformation ~ bunnyRes:', bunnyRes);
+                fileMap[index] = bunnyRes;
+            }
         }
     }
-    // console.log('fileMap', fileMap, certifications);
-    if (certifications &&
-        certifications.length > 0 &&
-        Object.keys(fileMap).length > 0) {
-        const processedCertifications = certifications.map((cert) => {
-            if (fileMap[cert.fileId]) {
-                return Object.assign(Object.assign({}, cert), { certificateFile: fileMap[cert.fileId] });
+    // Update certifications with uploaded file URLs
+    if (certifications && certifications.length > 0) {
+        payload.certifications = certifications.map((cert, index) => {
+            // If we have a newly uploaded file for this index, use it
+            if (fileMap[index]) {
+                return Object.assign(Object.assign({}, cert), { certificateFile: fileMap[index] });
             }
+            // Otherwise, keep existing certificateFile (if any)
             return cert;
         });
-        payload.certifications = processedCertifications;
     }
     const isProfessionalInformationExist = yield professional_info_model_1.ProfessionalInfo.findOne({
         user: id,
@@ -170,7 +179,6 @@ const updateOrCreateUserProfessionalInformation = (payload, id, files) => __awai
     if (!isProfessionalInformationExist) {
         result = yield professional_info_model_1.ProfessionalInfo.create(Object.assign({ user: id }, payload));
     }
-    console.log('🚀 ~ updateOrCreateUserProfessionalInformation ~ payload:', payload);
     result = yield professional_info_model_1.ProfessionalInfo.findOneAndUpdate({ user: id }, { $set: payload }, { new: true });
     return result;
 });
@@ -700,6 +708,118 @@ const markAllNotificationsAsRead = (user) => __awaiter(void 0, void 0, void 0, f
     const result = yield notification_model_1.Notification.updateMany({ user: user._id }, { $set: { isRead: true } });
     return result;
 });
+const autoFillAI = (user, file) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b, _c;
+    if (!(file === null || file === void 0 ? void 0 : file.path)) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Resume file is required');
+    }
+    // Parse PDF to extract text using pdf-parse v2 API
+    const parser = new pdf_parse_1.PDFParse({ url: file.path });
+    const pdfData = yield parser.getText();
+    yield parser.destroy();
+    const resumeText = pdfData.text;
+    if (!resumeText || resumeText.trim().length === 0) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Could not extract text from the PDF');
+    }
+    // Define the expected JSON schema for OpenAI
+    const systemPrompt = `You are a resume parser AI. Extract information from the provided resume text and return a clean JSON object with the following structure:
+
+{
+  "personalInformation": {
+    "firstName": "string or null",
+    "lastName": "string or null",
+    "phone": "string or null",
+    "bio": "string or null (short professional summary)",
+    "dateOfBirth": "ISO date string or null",
+    "gender": "Male, Female, Other, or null",
+    "address": {
+      "street": "string or null",
+      "city": "string or null",
+      "state": "string or null",
+      "zipCode": "string or null",
+      "country": "string or null"
+    }
+  },
+  "professionalInformation": {
+    "education": [
+      {
+        "degree": "string",
+        "institution": "string",
+        "yearOfGraduation": number or null,
+        "fieldOfStudy": "string or null",
+        "grade": "string or null (GPA or grade)"
+      }
+    ],
+    "experience": [
+      {
+        "jobTitle": "string",
+        "companyName": "string",
+        "duration": "string (e.g., 'Jan 2020 - Dec 2022' or '3 years')",
+        "responsibilities": "string (brief description of role)"
+      }
+    ],
+    "certifications": [
+      {
+        "title": "string",
+        "institution": "string or null",
+        "issueDate": "ISO date string or null",
+        "expireDate": "ISO date string or null",
+        "credentialId": "string or null",
+        "credentialUrl": "string or null"
+      }
+    ],
+    "skills": ["string array of skills"]
+  }
+}
+
+Rules:
+1. Return ONLY the JSON object, no additional text, markdown, or explanation.
+2. Use null for fields that cannot be determined from the resume.
+3. For arrays (education, experience, certifications, skills), return an empty array [] if no items found.
+4. Ensure dates are in ISO format (YYYY-MM-DD) where possible.
+5. Extract a professional bio/summary if available, otherwise use null.
+6. Parse the full name into firstName and lastName.`;
+    // Call OpenAI API
+    const response = yield fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer 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`,
+        },
+        body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `Parse this resume and extract the information:\n\n${resumeText}` },
+            ],
+            temperature: 0.1,
+            max_tokens: 2000,
+        }),
+    });
+    if (!response.ok) {
+        const errorData = yield response.json();
+        console.error('OpenAI API error:', errorData);
+        throw new ApiError_1.default(http_status_1.default.INTERNAL_SERVER_ERROR, 'Failed to process resume with AI');
+    }
+    const openaiResponse = yield response.json();
+    const content = (_c = (_b = (_a = openaiResponse.choices) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.message) === null || _c === void 0 ? void 0 : _c.content;
+    if (!content) {
+        throw new ApiError_1.default(http_status_1.default.INTERNAL_SERVER_ERROR, 'No response from AI');
+    }
+    let cleanedContent = content.trim();
+    if (cleanedContent.startsWith('```json')) {
+        cleanedContent = cleanedContent.slice(7);
+    }
+    else if (cleanedContent.startsWith('```')) {
+        cleanedContent = cleanedContent.slice(3);
+    }
+    if (cleanedContent.endsWith('```')) {
+        cleanedContent = cleanedContent.slice(0, -3);
+    }
+    cleanedContent = cleanedContent.trim();
+    const parsedData = JSON.parse(cleanedContent);
+    return parsedData;
+});
 exports.UserService = {
     createUser,
     updateUser,
@@ -725,4 +845,5 @@ exports.UserService = {
     deleteAccount,
     getUsers,
     updateAllUsers,
+    autoFillAI,
 };

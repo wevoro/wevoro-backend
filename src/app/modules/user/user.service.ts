@@ -17,6 +17,7 @@ import { PersonalInfo } from './personal-info.model';
 import { Pro } from './pro.model';
 import { ProfessionalInfo } from './professional-info.model';
 import { Waitlist } from './waitlist.model';
+import { uploadFile } from '../../../helpers/bunny-upload';
 cloudinary.v2.config({
   cloud_name: config.cloudinary.cloud_name,
   api_key: config.cloudinary.api_key,
@@ -177,40 +178,41 @@ const updateOrCreateUserProfessionalInformation = async (
   id: string,
   files: any
 ): Promise<any> => {
-  console.log('🚀 ~ updateOrCreateUserProfessionalInformation ~ files:', files)
   const { certifications }: any = payload;
- 
 
-  const fileMap: any = {};
+  // Upload files to Cloudinary and create a map indexed by certification position
+  // Files are named as: certification_0, certification_1, etc.
+  const fileMap: Record<number, string> = {};
 
-  if (files.length > 0) {
+  if (files && files.length > 0) {
     for (const file of files) {
-      const cloudRes = await cloudinary.v2.uploader.upload(file.path,{
-        upload_preset: 'wevoro',
-      });
-
-      fileMap[file.originalname] = cloudRes.secure_url;
+      // Extract index from filename (e.g., "certification_0" -> 0)
+      const match = file.originalname.match(/certification_(\d+)/);
+      if (match) {
+        const index = parseInt(match[1], 10);
+        // const cloudRes = await cloudinary.v2.uploader.upload(file.path, {
+        //   upload_preset: 'Wevoro',
+        // });
+        const bunnyRes = await uploadFile(file);
+        console.log('🚀 ~ updateOrCreateUserProfessionalInformation ~ bunnyRes:', bunnyRes)
+        fileMap[index] = bunnyRes;
+      }
     }
   }
 
-  // console.log('fileMap', fileMap, certifications);
-
-  if (
-    certifications &&
-    certifications.length > 0 &&
-    Object.keys(fileMap).length > 0
-  ) {
-    const processedCertifications = certifications.map((cert: any) => {
-      if (fileMap[cert.fileId]) {
+  // Update certifications with uploaded file URLs
+  if (certifications && certifications.length > 0) {
+    payload.certifications = certifications.map((cert: any, index: number) => {
+      // If we have a newly uploaded file for this index, use it
+      if (fileMap[index]) {
         return {
           ...cert,
-          certificateFile: fileMap[cert.fileId],
+          certificateFile: fileMap[index],
         };
       }
+      // Otherwise, keep existing certificateFile (if any)
       return cert;
     });
-
-    payload.certifications = processedCertifications;
   }
 
   const isProfessionalInformationExist = await ProfessionalInfo.findOne({
@@ -222,7 +224,7 @@ const updateOrCreateUserProfessionalInformation = async (
   if (!isProfessionalInformationExist) {
     result = await ProfessionalInfo.create({ user: id, ...payload });
   }
-  console.log('🚀 ~ updateOrCreateUserProfessionalInformation ~ payload:', payload)
+
   result = await ProfessionalInfo.findOneAndUpdate(
     { user: id },
     { $set: payload },

@@ -25,6 +25,11 @@ export default {
     api_key: process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET,
   },
+  bunny: {
+    storage_zone: process.env.BUNNY_STORAGE_ZONE,
+    api_key: process.env.BUNNY_API_KEY,
+    cdn_url: process.env.BUNNY_CDN_URL,
+  },
   frontend_url: {
     local: process.env.FRONTEND_URL_LOCAL,
     prod: process.env.FRONTEND_URL_PROD,
