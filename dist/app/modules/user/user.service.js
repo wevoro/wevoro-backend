@@ -784,7 +784,7 @@ Rules:
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer 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`,
+            'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
             model: 'gpt-4o-mini',
