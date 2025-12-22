@@ -139,5 +139,11 @@ router.delete(
   auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.PRO, ENUM_USER_ROLE.ADMIN),
   UserController.deleteAccount
 );
+router.post(
+  '/auto-fill',
+  auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.PRO, ENUM_USER_ROLE.ADMIN),
+  upload.single('file'),
+  UserController.autoFillAI
+);
 
 export const UserRoutes = router;

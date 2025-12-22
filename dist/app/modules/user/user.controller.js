@@ -251,6 +251,15 @@ const deleteAccount = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, 
         data: result,
     });
 }));
+const autoFillAI = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const result = yield user_service_1.UserService.autoFillAI(req.user, req.file);
+    (0, sendResponse_1.default)(res, {
+        statusCode: http_status_1.default.OK,
+        success: true,
+        message: 'Auto fill successfully!',
+        data: result,
+    });
+}));
 exports.UserController = {
     createUser,
     updateUser,
@@ -276,4 +285,5 @@ exports.UserController = {
     deleteAccount,
     getUsers,
     updateAllUsers,
+    autoFillAI,
 };
