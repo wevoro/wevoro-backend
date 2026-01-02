@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -15,7 +48,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.UserService = void 0;
 const http_status_1 = __importDefault(require("http-status"));
 const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
-const pdf_parse_1 = require("pdf-parse");
+const pdfjsLib = __importStar(require("pdfjs-dist/legacy/build/pdf.mjs"));
+const fs_1 = __importDefault(require("fs"));
 const user_model_1 = require("./user.model");
 const cloudinary_1 = __importDefault(require("cloudinary"));
 const mongoose_1 = __importDefault(require("mongoose"));
@@ -720,11 +754,25 @@ const autoFillAI = (user, file) => __awaiter(void 0, void 0, void 0, function* (
     if (!(file === null || file === void 0 ? void 0 : file.path)) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Resume file is required');
     }
-    // Parse PDF to extract text using pdf-parse v2 API
-    const parser = new pdf_parse_1.PDFParse({ url: file.path });
-    const pdfData = yield parser.getText();
-    yield parser.destroy();
-    const resumeText = pdfData.text;
+    // Parse PDF to extract text using pdfjs-dist
+    const fileBuffer = fs_1.default.readFileSync(file.path);
+    const uint8Array = new Uint8Array(fileBuffer);
+    const loadingTask = pdfjsLib.getDocument({
+        data: uint8Array,
+        useSystemFonts: true,
+        disableFontFace: true,
+    });
+    const pdfDocument = yield loadingTask.promise;
+    let resumeText = '';
+    // Extract text from all pages
+    for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum++) {
+        const page = yield pdfDocument.getPage(pageNum);
+        const textContent = yield page.getTextContent();
+        const pageText = textContent.items.map((item) => item.str).join(' ');
+        resumeText += pageText + '\n';
+    }
+    resumeText = resumeText.trim();
+    console.log('🚀 ~ autoFillAI ~ resumeText:', resumeText);
     if (!resumeText || resumeText.trim().length === 0) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Could not extract text from the PDF');
     }
@@ -786,7 +834,7 @@ Rules:
 4. Ensure dates are in ISO format (YYYY-MM-DD) where possible.
 5. Extract a professional bio/summary if available, otherwise use null.
 6. Parse the full name into firstName and lastName.`;
-    console.log('config.openai_api_key', config_1.default.openai_api_key);
+    // console.log('config.openai_api_key', config.openai_api_key);
     // Call OpenAI API
     const response = yield fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
