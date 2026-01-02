@@ -48,7 +48,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.UserService = void 0;
 const http_status_1 = __importDefault(require("http-status"));
 const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
-const pdfjsLib = __importStar(require("pdfjs-dist/legacy/build/pdf.mjs"));
 const fs_1 = __importDefault(require("fs"));
 const user_model_1 = require("./user.model");
 const cloudinary_1 = __importDefault(require("cloudinary"));
@@ -754,7 +753,8 @@ const autoFillAI = (user, file) => __awaiter(void 0, void 0, void 0, function* (
     if (!(file === null || file === void 0 ? void 0 : file.path)) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Resume file is required');
     }
-    // Parse PDF to extract text using pdfjs-dist
+    // Parse PDF to extract text using pdfjs-dist (dynamic import for ESM/CommonJS compatibility)
+    const pdfjsLib = yield Promise.resolve().then(() => __importStar(require('pdfjs-dist/legacy/build/pdf.mjs')));
     const fileBuffer = fs_1.default.readFileSync(file.path);
     const uint8Array = new Uint8Array(fileBuffer);
     const loadingTask = pdfjsLib.getDocument({

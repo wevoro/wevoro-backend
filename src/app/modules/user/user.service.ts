@@ -1,6 +1,5 @@
 import httpStatus from 'http-status';
 import ApiError from '../../../errors/ApiError';
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import fs from 'fs';
 import { IUser } from './user.interface';
 import { User } from './user.model';
@@ -865,7 +864,9 @@ const autoFillAI = async (user: Partial<IUser>, file: any): Promise<any> => {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Resume file is required');
   }
 
-  // Parse PDF to extract text using pdfjs-dist
+  // Parse PDF to extract text using pdfjs-dist (dynamic import for ESM/CommonJS compatibility)
+  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+
   const fileBuffer = fs.readFileSync(file.path);
   const uint8Array = new Uint8Array(fileBuffer);
 
