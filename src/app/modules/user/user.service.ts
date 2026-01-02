@@ -1,6 +1,7 @@
 import httpStatus from 'http-status';
 import ApiError from '../../../errors/ApiError';
-import { PDFParse } from 'pdf-parse';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+import fs from 'fs';
 import { IUser } from './user.interface';
 import { User } from './user.model';
 
@@ -864,11 +865,29 @@ const autoFillAI = async (user: Partial<IUser>, file: any): Promise<any> => {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Resume file is required');
   }
 
-  // Parse PDF to extract text using pdf-parse v2 API
-  const parser = new PDFParse({ url: file.path });
-  const pdfData = await parser.getText();
-  await parser.destroy();
-  const resumeText = pdfData.text;
+  // Parse PDF to extract text using pdfjs-dist
+  const fileBuffer = fs.readFileSync(file.path);
+  const uint8Array = new Uint8Array(fileBuffer);
+
+  const loadingTask = pdfjsLib.getDocument({
+    data: uint8Array,
+    useSystemFonts: true,
+    disableFontFace: true,
+  });
+
+  const pdfDocument = await loadingTask.promise;
+  let resumeText = '';
+
+  // Extract text from all pages
+  for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum++) {
+    const page = await pdfDocument.getPage(pageNum);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items.map((item: any) => item.str).join(' ');
+    resumeText += pageText + '\n';
+  }
+
+  resumeText = resumeText.trim();
+  console.log('🚀 ~ autoFillAI ~ resumeText:', resumeText);
 
   if (!resumeText || resumeText.trim().length === 0) {
     throw new ApiError(
@@ -936,7 +955,7 @@ Rules:
 5. Extract a professional bio/summary if available, otherwise use null.
 6. Parse the full name into firstName and lastName.`;
 
-  console.log('config.openai_api_key', config.openai_api_key);
+  // console.log('config.openai_api_key', config.openai_api_key);
 
   // Call OpenAI API
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
