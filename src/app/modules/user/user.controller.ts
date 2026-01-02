@@ -61,7 +61,7 @@ const updateAllUsers: RequestHandler = catchAsync(
 const updateOrCreateUserPersonalInformation = catchAsync(
   async (req: Request, res: Response) => {
     const data = JSON.parse(req.body.data || '{}');
-    console.log('🚀 ~ data:', data)
+    console.log('🚀 ~ data:', data);
     const queryId = req.query.id;
 
     const id = queryId ? queryId : req.user?._id;
@@ -84,7 +84,7 @@ const updateOrCreateUserPersonalInformation = catchAsync(
 const updateOrCreateUserProfessionalInformation = catchAsync(
   async (req: Request, res: Response) => {
     const data = JSON.parse(req.body.data || '{}');
-    console.log('🚀 ~ data:', data)
+    console.log('🚀 ~ data:', data);
     const files = req.files;
     const queryId = req.query.id;
 
@@ -104,28 +104,28 @@ const updateOrCreateUserProfessionalInformation = catchAsync(
     });
   }
 );
-const updateOrCreateUserDocuments = catchAsync(
-  async (req: Request, res: Response) => {
-    const files = req.files;
-    const payload = JSON.parse(req.body.data || '{}');
+// const updateOrCreateUserDocuments = catchAsync(
+//   async (req: Request, res: Response) => {
+//     const files = req.files;
+//     const payload = JSON.parse(req.body.data || '{}');
 
-    const queryId = req.query.id;
+//     const queryId = req.query.id;
 
-    const id = queryId ? queryId : req.user?._id;
-    const result = await UserService.updateOrCreateUserDocuments(
-      id as string,
-      files,
-      payload
-    );
+//     const id = queryId ? queryId : req.user?._id;
+//     const result = await UserService.updateOrCreateUserDocuments(
+//       id as string,
+//       files,
+//       payload
+//     );
 
-    sendResponse<IUser>(res, {
-      statusCode: httpStatus.OK,
-      success: true,
-      message: 'User documents updated successfully!',
-      data: result,
-    });
-  }
-);
+//     sendResponse<IUser>(res, {
+//       statusCode: httpStatus.OK,
+//       success: true,
+//       message: 'User documents updated successfully!',
+//       data: result,
+//     });
+//   }
+// );
 
 const getUserProfile: RequestHandler = catchAsync(
   async (req: Request, res: Response) => {
@@ -354,7 +354,10 @@ const deleteAccount: RequestHandler = catchAsync(
 );
 const autoFillAI: RequestHandler = catchAsync(
   async (req: Request, res: Response) => {
-    const result = await UserService.autoFillAI(req.user as Partial<IUser>, req.file);
+    const result = await UserService.autoFillAI(
+      req.user as Partial<IUser>,
+      req.file
+    );
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
@@ -371,7 +374,7 @@ export const UserController = {
   getUserProfile,
   updateOrCreateUserPersonalInformation,
   updateOrCreateUserProfessionalInformation,
-  updateOrCreateUserDocuments,
+  // updateOrCreateUserDocuments,
   getUserById,
   updateCoverImage,
   getPros,

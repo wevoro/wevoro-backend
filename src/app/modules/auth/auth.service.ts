@@ -6,7 +6,7 @@ import { ENUM_USER_ROLE } from '../../../enums/user';
 import ApiError from '../../../errors/ApiError';
 import { calculatePartnerPercentage } from '../../../helpers/calculatePartnerPercentage';
 import { jwtHelpers } from '../../../helpers/jwtHelpers';
-import { Documents } from '../user/documents.model';
+import { Documents } from '../document/documents.model';
 import { PersonalInfo } from '../user/personal-info.model';
 import { ProfessionalInfo } from '../user/professional-info.model';
 import { User } from '../user/user.model';

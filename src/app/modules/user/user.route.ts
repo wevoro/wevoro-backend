@@ -25,16 +25,16 @@ router.patch(
   UserController.updateOrCreateUserProfessionalInformation
 );
 
-router.patch(
-  '/documents',
-  auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.PRO, ENUM_USER_ROLE.ADMIN),
-  upload.fields([
-    { name: 'certificate', maxCount: 1 },
-    { name: 'resume', maxCount: 1 },
-    { name: 'governmentId', maxCount: 1 },
-  ]),
-  UserController.updateOrCreateUserDocuments
-);
+// router.patch(
+//   '/documents',
+//   auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.PRO, ENUM_USER_ROLE.ADMIN),
+//   upload.fields([
+//     { name: 'certificate', maxCount: 1 },
+//     { name: 'resume', maxCount: 1 },
+//     { name: 'governmentId', maxCount: 1 },
+//   ]),
+//   UserController.updateOrCreateUserDocuments
+// );
 router.patch(
   '/update/:id',
   auth(ENUM_USER_ROLE.ADMIN),

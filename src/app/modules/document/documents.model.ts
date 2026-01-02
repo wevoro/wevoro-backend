@@ -7,14 +7,25 @@ const DocumentsSchema = new Schema<any>(
       type: Schema.Types.ObjectId,
       ref: 'User',
     },
-    certificate: {
-      type: String || null,
+    category: {
+      type: String,
     },
-    resume: {
-      type: String || null,
+    documentType: {
+      type: String,
     },
-    governmentId: {
-      type: String || null,
+    title: {
+      type: String,
+    },
+    privacy: {
+      type: String,
+      enum: ['protected', 'private'],
+      default: 'private',
+    },
+    url: {
+      type: String,
+    },
+    consent: {
+      type: Boolean,
     },
   },
   {

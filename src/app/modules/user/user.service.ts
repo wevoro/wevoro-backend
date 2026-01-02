@@ -10,7 +10,7 @@ import config from '../../../config';
 import { ENUM_USER_ROLE } from '../../../enums/user';
 import { calculatePartnerPercentage } from '../../../helpers/calculatePartnerPercentage';
 import { sendEmail } from '../auth/sendMail';
-import { Documents } from './documents.model';
+import { Documents } from '../document/documents.model';
 import { Notification } from './notification.model';
 import { Offer } from './offer.model';
 import { PersonalInfo } from './personal-info.model';
@@ -87,7 +87,6 @@ const deleteAccount = async (user: Partial<IUser>) => {
     const userId = user._id;
     const userRole = user.role;
 
-    
     await User.findByIdAndDelete(userId, { session });
 
     console.log('inside delete account');
@@ -153,7 +152,7 @@ const updateOrCreateUserPersonalInformation = async (
   console.log({ file, payload });
 
   if (file?.path) {
-    const cloudRes = await cloudinary.v2.uploader.upload(file.path,{
+    const cloudRes = await cloudinary.v2.uploader.upload(file.path, {
       upload_preset: 'wevoro',
     });
     payload.image = cloudRes.secure_url;
@@ -194,7 +193,10 @@ const updateOrCreateUserProfessionalInformation = async (
         //   upload_preset: 'Wevoro',
         // });
         const bunnyRes = await uploadFile(file);
-        console.log('🚀 ~ updateOrCreateUserProfessionalInformation ~ bunnyRes:', bunnyRes)
+        console.log(
+          '🚀 ~ updateOrCreateUserProfessionalInformation ~ bunnyRes:',
+          bunnyRes
+        );
         fileMap[index] = bunnyRes;
       }
     }
@@ -233,55 +235,55 @@ const updateOrCreateUserProfessionalInformation = async (
 
   return result;
 };
-const updateOrCreateUserDocuments = async (
-  id: string,
-  files: any,
-  payload: any
-): Promise<any> => {
-  let fileMap: any = {};
+// const updateOrCreateUserDocuments = async (
+//   id: string,
+//   files: any,
+//   payload: any
+// ): Promise<any> => {
+//   let fileMap: any = {};
 
-  if (files?.certificate?.[0]?.path) {
-    fileMap.certificate = files.certificate[0].path;
-  }
-  if (files?.resume?.[0]?.path) {
-    fileMap.resume = files.resume[0].path;
-  }
-  if (files?.governmentId?.[0]?.path) {
-    fileMap.governmentId = files.governmentId[0].path;
-  }
+//   if (files?.certificate?.[0]?.path) {
+//     fileMap.certificate = files.certificate[0].path;
+//   }
+//   if (files?.resume?.[0]?.path) {
+//     fileMap.resume = files.resume[0].path;
+//   }
+//   if (files?.governmentId?.[0]?.path) {
+//     fileMap.governmentId = files.governmentId[0].path;
+//   }
 
-  if (Object.keys(fileMap).length > 0) {
-    for (const file of Object.keys(fileMap)) {
-        const cloudRes = await cloudinary.v2.uploader.upload(fileMap[file],{
-        upload_preset: 'wevoro',
-      });
-      // console.log('cloudRes', cloudRes);
-      fileMap[file] = cloudRes.secure_url;
-    }
-  }
+//   if (Object.keys(fileMap).length > 0) {
+//     for (const file of Object.keys(fileMap)) {
+//       const cloudRes = await cloudinary.v2.uploader.upload(fileMap[file], {
+//         upload_preset: 'wevoro',
+//       });
+//       // console.log('cloudRes', cloudRes);
+//       fileMap[file] = cloudRes.secure_url;
+//     }
+//   }
 
-  const isDocumentsExist = await Documents.findOne({ user: id });
+//   const isDocumentsExist = await Documents.findOne({ user: id });
 
-  let result: any;
+//   let result: any;
 
-  if (!isDocumentsExist) {
-    result = await Documents.create({ user: id, ...fileMap });
-  }
+//   if (!isDocumentsExist) {
+//     result = await Documents.create({ user: id, ...fileMap });
+//   }
 
-  if (Object.keys(payload).length > 0) {
-    fileMap = payload;
-  }
+//   if (Object.keys(payload).length > 0) {
+//     fileMap = payload;
+//   }
 
-  // console.log('query', fileMap);
+//   // console.log('query', fileMap);
 
-  result = await Documents.findOneAndUpdate(
-    { user: id },
-    { $set: fileMap },
-    { new: true }
-  );
+//   result = await Documents.findOneAndUpdate(
+//     { user: id },
+//     { $set: fileMap },
+//     { new: true }
+//   );
 
-  return result;
-};
+//   return result;
+// };
 
 const handleCalculatePartnerPercentage = async (_id: string) => {
   const offersSent = await Offer.countDocuments({ partner: _id });
@@ -546,7 +548,7 @@ const updateCoverImage = async (
     throw new ApiError(httpStatus.BAD_REQUEST, 'File is required');
   }
 
-  const cloudRes = await cloudinary.v2.uploader.upload(file.path,{
+  const cloudRes = await cloudinary.v2.uploader.upload(file.path, {
     upload_preset: 'wevoro',
   });
   const result = await User.findByIdAndUpdate(
@@ -785,7 +787,7 @@ const uploadOfferDocuments = async (files: any, id: string): Promise<any> => {
   const fileMap: any = {};
   if (files.length > 0) {
     for (const file of files) {
-      const cloudRes = await cloudinary.v2.uploader.upload(file.path,{
+      const cloudRes = await cloudinary.v2.uploader.upload(file.path, {
         upload_preset: 'wevoro',
       });
       fileMap[file.originalname] = cloudRes.secure_url;
@@ -869,7 +871,10 @@ const autoFillAI = async (user: Partial<IUser>, file: any): Promise<any> => {
   const resumeText = pdfData.text;
 
   if (!resumeText || resumeText.trim().length === 0) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'Could not extract text from the PDF');
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      'Could not extract text from the PDF'
+    );
   }
 
   // Define the expected JSON schema for OpenAI
@@ -931,18 +936,23 @@ Rules:
 5. Extract a professional bio/summary if available, otherwise use null.
 6. Parse the full name into firstName and lastName.`;
 
+  console.log('config.openai_api_key', config.openai_api_key);
+
   // Call OpenAI API
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+      Authorization: `Bearer ${config.openai_api_key}`,
     },
     body: JSON.stringify({
       model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Parse this resume and extract the information:\n\n${resumeText}` },
+        {
+          role: 'user',
+          content: `Parse this resume and extract the information:\n\n${resumeText}`,
+        },
       ],
       temperature: 0.1,
       max_tokens: 2000,
@@ -952,7 +962,10 @@ Rules:
   if (!response.ok) {
     const errorData = await response.json();
     console.error('OpenAI API error:', errorData);
-    throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to process resume with AI');
+    throw new ApiError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      'Failed to process resume with AI'
+    );
   }
 
   const openaiResponse = await response.json();
@@ -962,20 +975,19 @@ Rules:
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'No response from AI');
   }
 
-  
-    let cleanedContent = content.trim();
-    if (cleanedContent.startsWith('```json')) {
-      cleanedContent = cleanedContent.slice(7);
-    } else if (cleanedContent.startsWith('```')) {
-      cleanedContent = cleanedContent.slice(3);
-    }
-    if (cleanedContent.endsWith('```')) {
-      cleanedContent = cleanedContent.slice(0, -3);
-    }
-    cleanedContent = cleanedContent.trim();
+  let cleanedContent = content.trim();
+  if (cleanedContent.startsWith('```json')) {
+    cleanedContent = cleanedContent.slice(7);
+  } else if (cleanedContent.startsWith('```')) {
+    cleanedContent = cleanedContent.slice(3);
+  }
+  if (cleanedContent.endsWith('```')) {
+    cleanedContent = cleanedContent.slice(0, -3);
+  }
+  cleanedContent = cleanedContent.trim();
 
-    const parsedData = JSON.parse(cleanedContent);
-    return parsedData;
+  const parsedData = JSON.parse(cleanedContent);
+  return parsedData;
 };
 
 export const UserService = {
@@ -984,7 +996,7 @@ export const UserService = {
   getUserProfile,
   updateOrCreateUserPersonalInformation,
   updateOrCreateUserProfessionalInformation,
-  updateOrCreateUserDocuments,
+  // updateOrCreateUserDocuments,
   getUserById,
   updateCoverImage,
   getPros,
