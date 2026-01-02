@@ -23,7 +23,7 @@ const config_1 = __importDefault(require("../../../config"));
 const user_1 = require("../../../enums/user");
 const calculatePartnerPercentage_1 = require("../../../helpers/calculatePartnerPercentage");
 const sendMail_1 = require("../auth/sendMail");
-const documents_model_1 = require("./documents.model");
+const documents_model_1 = require("../document/documents.model");
 const notification_model_1 = require("./notification.model");
 const offer_model_1 = require("./offer.model");
 const personal_info_model_1 = require("./personal-info.model");
@@ -182,39 +182,46 @@ const updateOrCreateUserProfessionalInformation = (payload, id, files) => __awai
     result = yield professional_info_model_1.ProfessionalInfo.findOneAndUpdate({ user: id }, { $set: payload }, { new: true });
     return result;
 });
-const updateOrCreateUserDocuments = (id, files, payload) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b, _c, _d, _e, _f;
-    let fileMap = {};
-    if ((_b = (_a = files === null || files === void 0 ? void 0 : files.certificate) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.path) {
-        fileMap.certificate = files.certificate[0].path;
-    }
-    if ((_d = (_c = files === null || files === void 0 ? void 0 : files.resume) === null || _c === void 0 ? void 0 : _c[0]) === null || _d === void 0 ? void 0 : _d.path) {
-        fileMap.resume = files.resume[0].path;
-    }
-    if ((_f = (_e = files === null || files === void 0 ? void 0 : files.governmentId) === null || _e === void 0 ? void 0 : _e[0]) === null || _f === void 0 ? void 0 : _f.path) {
-        fileMap.governmentId = files.governmentId[0].path;
-    }
-    if (Object.keys(fileMap).length > 0) {
-        for (const file of Object.keys(fileMap)) {
-            const cloudRes = yield cloudinary_1.default.v2.uploader.upload(fileMap[file], {
-                upload_preset: 'wevoro',
-            });
-            // console.log('cloudRes', cloudRes);
-            fileMap[file] = cloudRes.secure_url;
-        }
-    }
-    const isDocumentsExist = yield documents_model_1.Documents.findOne({ user: id });
-    let result;
-    if (!isDocumentsExist) {
-        result = yield documents_model_1.Documents.create(Object.assign({ user: id }, fileMap));
-    }
-    if (Object.keys(payload).length > 0) {
-        fileMap = payload;
-    }
-    // console.log('query', fileMap);
-    result = yield documents_model_1.Documents.findOneAndUpdate({ user: id }, { $set: fileMap }, { new: true });
-    return result;
-});
+// const updateOrCreateUserDocuments = async (
+//   id: string,
+//   files: any,
+//   payload: any
+// ): Promise<any> => {
+//   let fileMap: any = {};
+//   if (files?.certificate?.[0]?.path) {
+//     fileMap.certificate = files.certificate[0].path;
+//   }
+//   if (files?.resume?.[0]?.path) {
+//     fileMap.resume = files.resume[0].path;
+//   }
+//   if (files?.governmentId?.[0]?.path) {
+//     fileMap.governmentId = files.governmentId[0].path;
+//   }
+//   if (Object.keys(fileMap).length > 0) {
+//     for (const file of Object.keys(fileMap)) {
+//       const cloudRes = await cloudinary.v2.uploader.upload(fileMap[file], {
+//         upload_preset: 'wevoro',
+//       });
+//       // console.log('cloudRes', cloudRes);
+//       fileMap[file] = cloudRes.secure_url;
+//     }
+//   }
+//   const isDocumentsExist = await Documents.findOne({ user: id });
+//   let result: any;
+//   if (!isDocumentsExist) {
+//     result = await Documents.create({ user: id, ...fileMap });
+//   }
+//   if (Object.keys(payload).length > 0) {
+//     fileMap = payload;
+//   }
+//   // console.log('query', fileMap);
+//   result = await Documents.findOneAndUpdate(
+//     { user: id },
+//     { $set: fileMap },
+//     { new: true }
+//   );
+//   return result;
+// };
 const handleCalculatePartnerPercentage = (_id) => __awaiter(void 0, void 0, void 0, function* () {
     const offersSent = yield offer_model_1.Offer.countDocuments({ partner: _id });
     const acceptedOffers = yield offer_model_1.Offer.countDocuments({
@@ -779,18 +786,22 @@ Rules:
 4. Ensure dates are in ISO format (YYYY-MM-DD) where possible.
 5. Extract a professional bio/summary if available, otherwise use null.
 6. Parse the full name into firstName and lastName.`;
+    console.log('config.openai_api_key', config_1.default.openai_api_key);
     // Call OpenAI API
     const response = yield fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+            Authorization: `Bearer ${config_1.default.openai_api_key}`,
         },
         body: JSON.stringify({
             model: 'gpt-4o-mini',
             messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: `Parse this resume and extract the information:\n\n${resumeText}` },
+                {
+                    role: 'user',
+                    content: `Parse this resume and extract the information:\n\n${resumeText}`,
+                },
             ],
             temperature: 0.1,
             max_tokens: 2000,
@@ -826,7 +837,7 @@ exports.UserService = {
     getUserProfile,
     updateOrCreateUserPersonalInformation,
     updateOrCreateUserProfessionalInformation,
-    updateOrCreateUserDocuments,
+    // updateOrCreateUserDocuments,
     getUserById,
     updateCoverImage,
     getPros,

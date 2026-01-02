@@ -26,7 +26,6 @@ app.use(globalErrorHandler_1.default);
 app.get('/', (req, res) => {
     res.send('Welcome to Horizzon API');
 });
-//handle not found
 app.use((req, res, next) => {
     res.status(http_status_1.default.NOT_FOUND).json({
         success: false,

@@ -10,6 +10,14 @@ const uploadDocument = catchAsync(async (req: Request, res: Response) => {
   const { category, documentType, title, isProtected, consent, documentId } =
     req.body;
 
+  if (!file) {
+    return sendResponse(res, {
+      statusCode: httpStatus.BAD_REQUEST,
+      success: false,
+      message: 'File is required',
+    });
+  }
+
   const result = await DocumentService.uploadDocument(
     file,
     {
@@ -18,6 +26,7 @@ const uploadDocument = catchAsync(async (req: Request, res: Response) => {
       title,
       isProtected: isProtected === 'true' || isProtected === true,
       consent: consent === 'true' || consent === true,
+      user: userId as string,
     },
     documentId as string,
     userId as string
