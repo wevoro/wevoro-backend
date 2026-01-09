@@ -31,9 +31,7 @@ const pro_model_1 = require("./pro.model");
 const professional_info_model_1 = require("./professional-info.model");
 const waitlist_model_1 = require("./waitlist.model");
 const bunny_upload_1 = require("../../../helpers/bunny-upload");
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-// const { PDFParse } = require('pdf-parse');
-const pdf_parse_1 = require("pdf-parse");
+const unpdf_1 = require("unpdf");
 cloudinary_1.default.v2.config({
     cloud_name: config_1.default.cloudinary.cloud_name,
     api_key: config_1.default.cloudinary.api_key,
@@ -719,15 +717,16 @@ const markAllNotificationsAsRead = (user) => __awaiter(void 0, void 0, void 0, f
     return result;
 });
 const autoFillAI = (user, file) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b, _c, _d;
+    var _a, _b, _c;
     if (!(file === null || file === void 0 ? void 0 : file.path)) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Resume file is required');
     }
-    // Use pdf-parse for serverless-compatible PDF text extraction
+    // Use unpdf for serverless-compatible PDF text extraction
     const fileBuffer = fs_1.default.readFileSync(file.path);
-    const parser = new pdf_parse_1.PDFParse({ data: fileBuffer });
-    const pdfData = yield parser.getText();
-    const resumeText = ((_a = pdfData.text) === null || _a === void 0 ? void 0 : _a.trim()) || '';
+    const uint8Array = new Uint8Array(fileBuffer);
+    const { text: resumeText } = yield (0, unpdf_1.extractText)(uint8Array, {
+        mergePages: true,
+    });
     console.log('🚀 ~ autoFillAI ~ resumeText:', resumeText);
     if (!resumeText || resumeText.trim().length === 0) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Could not extract text from the PDF');
@@ -817,7 +816,7 @@ Rules:
         throw new ApiError_1.default(http_status_1.default.INTERNAL_SERVER_ERROR, 'Failed to process resume with AI');
     }
     const openaiResponse = yield response.json();
-    const content = (_d = (_c = (_b = openaiResponse.choices) === null || _b === void 0 ? void 0 : _b[0]) === null || _c === void 0 ? void 0 : _c.message) === null || _d === void 0 ? void 0 : _d.content;
+    const content = (_c = (_b = (_a = openaiResponse.choices) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.message) === null || _c === void 0 ? void 0 : _c.content;
     if (!content) {
         throw new ApiError_1.default(http_status_1.default.INTERNAL_SERVER_ERROR, 'No response from AI');
     }

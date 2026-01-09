@@ -18,9 +18,7 @@ import { Pro } from './pro.model';
 import { ProfessionalInfo } from './professional-info.model';
 import { Waitlist } from './waitlist.model';
 import { uploadFile } from '../../../helpers/bunny-upload';
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-// const { PDFParse } = require('pdf-parse');
-import { PDFParse } from 'pdf-parse';
+import { extractText } from 'unpdf';
 cloudinary.v2.config({
   cloud_name: config.cloudinary.cloud_name,
   api_key: config.cloudinary.api_key,
@@ -867,12 +865,13 @@ const autoFillAI = async (user: Partial<IUser>, file: any): Promise<any> => {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Resume file is required');
   }
 
-  // Use pdf-parse for serverless-compatible PDF text extraction
+  // Use unpdf for serverless-compatible PDF text extraction
   const fileBuffer = fs.readFileSync(file.path);
+  const uint8Array = new Uint8Array(fileBuffer);
 
-  const parser = new PDFParse({ data: fileBuffer });
-  const pdfData = await parser.getText();
-  const resumeText = pdfData.text?.trim() || '';
+  const { text: resumeText } = await extractText(uint8Array, {
+    mergePages: true,
+  });
   console.log('🚀 ~ autoFillAI ~ resumeText:', resumeText);
 
   if (!resumeText || resumeText.trim().length === 0) {
