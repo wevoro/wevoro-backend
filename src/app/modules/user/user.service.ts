@@ -940,8 +940,6 @@ Rules:
 5. Extract a professional bio/summary if available, otherwise use null.
 6. Parse the full name into firstName and lastName.`;
 
-  // console.log('config.openai_api_key', config.openai_api_key);
-
   // Call OpenAI API
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
