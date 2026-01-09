@@ -865,7 +865,8 @@ const autoFillAI = async (user: Partial<IUser>, file: any): Promise<any> => {
   }
 
   // Parse PDF to extract text using pdfjs-dist (dynamic import for ESM/CommonJS compatibility)
-  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  // @ts-expect-error - Using CommonJS build for Vercel serverless compatibility
+  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
 
   const fileBuffer = fs.readFileSync(file.path);
   const uint8Array = new Uint8Array(fileBuffer);
