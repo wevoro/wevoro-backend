@@ -753,9 +753,7 @@ const autoFillAI = (user, file) => __awaiter(void 0, void 0, void 0, function* (
     if (!(file === null || file === void 0 ? void 0 : file.path)) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Resume file is required');
     }
-    // Parse PDF to extract text using pdfjs-dist (dynamic import for ESM/CommonJS compatibility)
-    // @ts-expect-error - Using CommonJS build for Vercel serverless compatibility
-    const pdfjsLib = yield Promise.resolve().then(() => __importStar(require('pdfjs-dist/legacy/build/pdf.js')));
+    const pdfjsLib = yield Promise.resolve().then(() => __importStar(require('pdfjs-dist/legacy/build/pdf.mjs')));
     const fileBuffer = fs_1.default.readFileSync(file.path);
     const uint8Array = new Uint8Array(fileBuffer);
     const loadingTask = pdfjsLib.getDocument({
