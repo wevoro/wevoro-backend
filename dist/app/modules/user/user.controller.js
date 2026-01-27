@@ -83,25 +83,6 @@ const updateOrCreateUserProfessionalInformation = (0, catchAsync_1.default)((req
         data: result,
     });
 }));
-// const updateOrCreateUserDocuments = catchAsync(
-//   async (req: Request, res: Response) => {
-//     const files = req.files;
-//     const payload = JSON.parse(req.body.data || '{}');
-//     const queryId = req.query.id;
-//     const id = queryId ? queryId : req.user?._id;
-//     const result = await UserService.updateOrCreateUserDocuments(
-//       id as string,
-//       files,
-//       payload
-//     );
-//     sendResponse<IUser>(res, {
-//       statusCode: httpStatus.OK,
-//       success: true,
-//       message: 'User documents updated successfully!',
-//       data: result,
-//     });
-//   }
-// );
 const getUserProfile = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const result = yield user_service_1.UserService.getUserProfile(req.user);
     (0, sendResponse_1.default)(res, {
@@ -145,60 +126,6 @@ const updateCoverImage = (0, catchAsync_1.default)((req, res) => __awaiter(void 
         statusCode: http_status_1.default.OK,
         success: true,
         message: 'User cover image updated successfully!',
-        data: result,
-    });
-}));
-const createOrUpdateOffer = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const result = yield user_service_1.UserService.createOrUpdateOffer(req.body, req.user);
-    (0, sendResponse_1.default)(res, {
-        statusCode: http_status_1.default.OK,
-        success: true,
-        message: 'Offer created successfully!',
-        data: result,
-    });
-}));
-const uploadOfferDocuments = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const result = yield user_service_1.UserService.uploadOfferDocuments(req.files, req.params.id);
-    (0, sendResponse_1.default)(res, {
-        statusCode: http_status_1.default.OK,
-        success: true,
-        message: 'Offer documents uploaded successfully!',
-        data: result,
-    });
-}));
-const getOffers = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const result = yield user_service_1.UserService.getOffers(req.user);
-    (0, sendResponse_1.default)(res, {
-        statusCode: http_status_1.default.OK,
-        success: true,
-        message: 'Offer created successfully!',
-        data: result,
-    });
-}));
-const deleteOffer = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const result = yield user_service_1.UserService.deleteOffer(req.params.id);
-    (0, sendResponse_1.default)(res, {
-        statusCode: http_status_1.default.OK,
-        success: true,
-        message: 'Offer deleted successfully!',
-        data: result,
-    });
-}));
-const updateOffer = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const result = yield user_service_1.UserService.updateOffer(req.params.id, req.body);
-    (0, sendResponse_1.default)(res, {
-        statusCode: http_status_1.default.OK,
-        success: true,
-        message: 'Offer updated successfully!',
-        data: result,
-    });
-}));
-const updateOfferNotes = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const result = yield user_service_1.UserService.updateOfferNotes(req.params.id, req.body);
-    (0, sendResponse_1.default)(res, {
-        statusCode: http_status_1.default.OK,
-        success: true,
-        message: 'Offer notes updated successfully!',
         data: result,
     });
 }));
@@ -271,18 +198,11 @@ exports.UserController = {
     getUserProfile,
     updateOrCreateUserPersonalInformation,
     updateOrCreateUserProfessionalInformation,
-    // updateOrCreateUserDocuments,
     getUserById,
     updateCoverImage,
     getPros,
     joinWaitlist,
-    createOrUpdateOffer,
-    getOffers,
-    deleteOffer,
-    uploadOfferDocuments,
     storePro,
-    updateOffer,
-    updateOfferNotes,
     createNotification,
     getNotifications,
     deleteNotification,

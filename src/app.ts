@@ -10,7 +10,6 @@ import compression from 'compression';
 
 const app: Application = express();
 
-
 app.use(compression());
 app.use(cors());
 app.use(cors({ origin: 'http://localhost:3000', credentials: true }));
@@ -27,9 +26,8 @@ app.use('/api/v1', routes);
 app.use(globalErrorHandler);
 
 app.get('/', (req: Request, res: Response) => {
-  res.send('Welcome to Horizzon API');
+  res.send('Welcome to Wevoro API');
 });
-
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   res.status(httpStatus.NOT_FOUND).json({

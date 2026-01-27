@@ -21,19 +21,12 @@ const uploadDocument = (0, catchAsync_1.default)((req, res) => __awaiter(void 0,
     var _a;
     const file = req.file;
     const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a._id;
-    const { category, documentType, title, isProtected, consent, documentId } = req.body;
-    if (!file) {
-        return (0, sendResponse_1.default)(res, {
-            statusCode: http_status_1.default.BAD_REQUEST,
-            success: false,
-            message: 'File is required',
-        });
-    }
+    const { category, documentType, title, isPublic, consent, documentId } = req.body;
     const result = yield document_service_1.DocumentService.uploadDocument(file, {
         category,
         documentType,
         title,
-        isProtected: isProtected === 'true' || isProtected === true,
+        isPublic: isPublic === 'true' || isPublic === true,
         consent: consent === 'true' || consent === true,
         user: userId,
     }, documentId, userId);
@@ -46,7 +39,8 @@ const uploadDocument = (0, catchAsync_1.default)((req, res) => __awaiter(void 0,
 }));
 const getUserDocuments = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
-    const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a._id;
+    const queryUserId = req.query.userId;
+    const userId = queryUserId ? queryUserId : (_a = req.user) === null || _a === void 0 ? void 0 : _a._id;
     const result = yield document_service_1.DocumentService.getUserDocuments(userId);
     (0, sendResponse_1.default)(res, {
         statusCode: http_status_1.default.OK,

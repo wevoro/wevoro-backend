@@ -24,7 +24,7 @@ app.use('/api/v1', routes_1.default);
 //global error handler
 app.use(globalErrorHandler_1.default);
 app.get('/', (req, res) => {
-    res.send('Welcome to Horizzon API');
+    res.send('Welcome to Wevoro API');
 });
 app.use((req, res, next) => {
     res.status(http_status_1.default.NOT_FOUND).json({

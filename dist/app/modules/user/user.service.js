@@ -25,13 +25,13 @@ const calculatePartnerPercentage_1 = require("../../../helpers/calculatePartnerP
 const sendMail_1 = require("../auth/sendMail");
 const documents_model_1 = require("../document/documents.model");
 const notification_model_1 = require("./notification.model");
-const offer_model_1 = require("./offer.model");
 const personal_info_model_1 = require("./personal-info.model");
 const pro_model_1 = require("./pro.model");
 const professional_info_model_1 = require("./professional-info.model");
 const waitlist_model_1 = require("./waitlist.model");
 const bunny_upload_1 = require("../../../helpers/bunny-upload");
 const unpdf_1 = require("unpdf");
+const offer_model_1 = require("../offer/offer.model");
 cloudinary_1.default.v2.config({
     cloud_name: config_1.default.cloudinary.cloud_name,
     api_key: config_1.default.cloudinary.api_key,
@@ -183,46 +183,6 @@ const updateOrCreateUserProfessionalInformation = (payload, id, files) => __awai
     result = yield professional_info_model_1.ProfessionalInfo.findOneAndUpdate({ user: id }, { $set: payload }, { new: true });
     return result;
 });
-// const updateOrCreateUserDocuments = async (
-//   id: string,
-//   files: any,
-//   payload: any
-// ): Promise<any> => {
-//   let fileMap: any = {};
-//   if (files?.certificate?.[0]?.path) {
-//     fileMap.certificate = files.certificate[0].path;
-//   }
-//   if (files?.resume?.[0]?.path) {
-//     fileMap.resume = files.resume[0].path;
-//   }
-//   if (files?.governmentId?.[0]?.path) {
-//     fileMap.governmentId = files.governmentId[0].path;
-//   }
-//   if (Object.keys(fileMap).length > 0) {
-//     for (const file of Object.keys(fileMap)) {
-//       const cloudRes = await cloudinary.v2.uploader.upload(fileMap[file], {
-//         upload_preset: 'wevoro',
-//       });
-//       // console.log('cloudRes', cloudRes);
-//       fileMap[file] = cloudRes.secure_url;
-//     }
-//   }
-//   const isDocumentsExist = await Documents.findOne({ user: id });
-//   let result: any;
-//   if (!isDocumentsExist) {
-//     result = await Documents.create({ user: id, ...fileMap });
-//   }
-//   if (Object.keys(payload).length > 0) {
-//     fileMap = payload;
-//   }
-//   // console.log('query', fileMap);
-//   result = await Documents.findOneAndUpdate(
-//     { user: id },
-//     { $set: fileMap },
-//     { new: true }
-//   );
-//   return result;
-// };
 const handleCalculatePartnerPercentage = (_id) => __awaiter(void 0, void 0, void 0, function* () {
     const offersSent = yield offer_model_1.Offer.countDocuments({ partner: _id });
     const acceptedOffers = yield offer_model_1.Offer.countDocuments({
@@ -296,14 +256,6 @@ const getUserProfile = (user) => __awaiter(void 0, void 0, void 0, function* () 
             },
         },
         {
-            $lookup: {
-                from: 'documents',
-                localField: '_id',
-                foreignField: 'user',
-                as: 'documents',
-            },
-        },
-        {
             $project: {
                 email: 1,
                 role: 1,
@@ -314,7 +266,6 @@ const getUserProfile = (user) => __awaiter(void 0, void 0, void 0, function* () 
                 updatedAt: 1,
                 personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
                 professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
-                documents: { $arrayElemAt: ['$documents', 0] },
                 completionPercentage: {
                     $cond: {
                         if: {
@@ -463,125 +414,6 @@ const updateCoverImage = (id, file) => __awaiter(void 0, void 0, void 0, functio
     const result = yield user_model_1.User.findByIdAndUpdate(id, { coverImage: cloudRes.secure_url }, { new: true });
     return result;
 });
-const createOrUpdateOffer = (payload, user) => __awaiter(void 0, void 0, void 0, function* () {
-    // Ensure the payload has the partner ID
-    payload.partner = user._id;
-    // Check if `payload.offer` exists to differentiate between update and create
-    if (payload === null || payload === void 0 ? void 0 : payload.offer) {
-        // Try updating the document
-        const result = yield offer_model_1.Offer.findByIdAndUpdate(payload.offer, payload, {
-            new: true, // Return the updated document
-            upsert: true, // Create a new document if it doesn't exist
-            setDefaultsOnInsert: true, // Ensure default values are set
-        });
-        return result;
-    }
-    else {
-        // If no `offer` ID is provided, create a new document explicitly
-        const newOffer = new offer_model_1.Offer(payload);
-        const savedOffer = yield newOffer.save();
-        return savedOffer;
-    }
-});
-const getOffers = (user) => __awaiter(void 0, void 0, void 0, function* () {
-    const result = yield offer_model_1.Offer.aggregate([
-        {
-            $match: Object.assign({ [user.role]: new mongoose_1.default.Types.ObjectId(user._id) }, (user.role === 'pro' ? { isRemovedByPro: { $ne: true } } : {})),
-        },
-        {
-            $lookup: {
-                from: 'users',
-                localField: 'pro',
-                foreignField: '_id',
-                as: 'pro',
-                pipeline: [
-                    {
-                        $lookup: {
-                            from: 'personalinformations',
-                            localField: '_id',
-                            foreignField: 'user',
-                            as: 'personalInfo',
-                        },
-                    },
-                    {
-                        $lookup: {
-                            from: 'professionalinformations',
-                            localField: '_id',
-                            foreignField: 'user',
-                            as: 'professionalInfo',
-                        },
-                    },
-                    {
-                        $lookup: {
-                            from: 'documents',
-                            localField: '_id',
-                            foreignField: 'user',
-                            as: 'documents',
-                        },
-                    },
-                    {
-                        $addFields: {
-                            personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
-                            professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
-                            documents: { $arrayElemAt: ['$documents', 0] },
-                        },
-                    },
-                ],
-            },
-        },
-        {
-            $lookup: {
-                from: 'users',
-                localField: 'partner',
-                foreignField: '_id',
-                as: 'partner',
-                pipeline: [
-                    {
-                        $lookup: {
-                            from: 'personalinformations',
-                            localField: '_id',
-                            foreignField: 'user',
-                            as: 'personalInfo',
-                        },
-                    },
-                    {
-                        $addFields: {
-                            personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
-                        },
-                    },
-                ],
-            },
-        },
-        {
-            $sort: { createdAt: -1 }, // Sort by createdAt in descending order
-        },
-        {
-            $project: {
-                pro: { $arrayElemAt: ['$pro', 0] },
-                partner: { $arrayElemAt: ['$partner', 0] },
-                notes: 1,
-                documentsNeeded: 1,
-                status: 1,
-                jobLink: 1,
-                createdAt: 1,
-                updatedAt: 1,
-            },
-        },
-    ]);
-    return result;
-});
-const deleteOffer = (id) => __awaiter(void 0, void 0, void 0, function* () {
-    const result = yield offer_model_1.Offer.findByIdAndDelete(id);
-    return result;
-});
-const updateOffer = (id, payload) => __awaiter(void 0, void 0, void 0, function* () {
-    const result = yield offer_model_1.Offer.findByIdAndUpdate(id, payload, { new: true });
-    return result;
-});
-const updateOfferNotes = (id, payload) => __awaiter(void 0, void 0, void 0, function* () {
-    const result = yield offer_model_1.Offer.findByIdAndUpdate(id, { $push: { notes: payload } }, { new: true });
-    return result;
-});
 const storePro = (payload, user) => __awaiter(void 0, void 0, void 0, function* () {
     const { pro } = payload;
     const existingPro = yield pro_model_1.Pro.findOne({ partner: user._id, pro });
@@ -661,32 +493,6 @@ const getPros = (user) => __awaiter(void 0, void 0, void 0, function* () {
         },
     ]);
     return result.map(item => item.pro).reverse();
-});
-const uploadOfferDocuments = (files, id) => __awaiter(void 0, void 0, void 0, function* () {
-    const fileMap = {};
-    if (files.length > 0) {
-        for (const file of files) {
-            const cloudRes = yield cloudinary_1.default.v2.uploader.upload(file.path, {
-                upload_preset: 'wevoro',
-            });
-            fileMap[file.originalname] = cloudRes.secure_url;
-        }
-    }
-    const offer = yield offer_model_1.Offer.findById(id);
-    if (!offer) {
-        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Offer not found');
-    }
-    const documentsNeeded = offer.documentsNeeded;
-    const documents = documentsNeeded.map((document) => {
-        if (fileMap[document._id]) {
-            return Object.assign(Object.assign({}, document), { url: fileMap[document._id], status: 'uploaded' });
-        }
-        return document;
-    });
-    offer.documentsNeeded = documents;
-    offer.status = 'responded';
-    yield offer.save();
-    return offer;
 });
 const createNotification = (payload) => __awaiter(void 0, void 0, void 0, function* () {
     const user = yield user_model_1.User.findById(payload.user);
@@ -844,13 +650,7 @@ exports.UserService = {
     updateCoverImage,
     getPros,
     joinWaitlist,
-    createOrUpdateOffer,
-    getOffers,
-    deleteOffer,
     storePro,
-    uploadOfferDocuments,
-    updateOffer,
-    updateOfferNotes,
     createNotification,
     getNotifications,
     deleteNotification,

@@ -8,6 +8,7 @@ const auth_route_1 = require("../modules/auth/auth.route");
 const feedback_route_1 = require("../modules/user/feedback.route");
 const user_route_1 = require("../modules/user/user.route");
 const document_route_1 = require("../modules/document/document.route");
+const offer_route_1 = require("../modules/offer/offer.route");
 const router = express_1.default.Router();
 const moduleRoutes = [
     {
@@ -17,6 +18,10 @@ const moduleRoutes = [
     {
         path: '/document',
         route: document_route_1.DocumentRoutes,
+    },
+    {
+        path: '/offer',
+        route: offer_route_1.OfferRoutes,
     },
     {
         path: '/auth',

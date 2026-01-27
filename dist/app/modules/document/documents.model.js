@@ -19,7 +19,7 @@ const DocumentsSchema = new mongoose_1.Schema({
     },
     privacy: {
         type: String,
-        enum: ['protected', 'private'],
+        enum: ['public', 'private'],
         default: 'private',
     },
     url: {
