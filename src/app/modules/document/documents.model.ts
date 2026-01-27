@@ -18,7 +18,7 @@ const DocumentsSchema = new Schema<any>(
     },
     privacy: {
       type: String,
-      enum: ['protected', 'private'],
+      enum: ['public', 'private'],
       default: 'private',
     },
     url: {

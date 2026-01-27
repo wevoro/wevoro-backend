@@ -104,28 +104,6 @@ const updateOrCreateUserProfessionalInformation = catchAsync(
     });
   }
 );
-// const updateOrCreateUserDocuments = catchAsync(
-//   async (req: Request, res: Response) => {
-//     const files = req.files;
-//     const payload = JSON.parse(req.body.data || '{}');
-
-//     const queryId = req.query.id;
-
-//     const id = queryId ? queryId : req.user?._id;
-//     const result = await UserService.updateOrCreateUserDocuments(
-//       id as string,
-//       files,
-//       payload
-//     );
-
-//     sendResponse<IUser>(res, {
-//       statusCode: httpStatus.OK,
-//       success: true,
-//       message: 'User documents updated successfully!',
-//       data: result,
-//     });
-//   }
-// );
 
 const getUserProfile: RequestHandler = catchAsync(
   async (req: Request, res: Response) => {
@@ -186,85 +164,6 @@ const updateCoverImage: RequestHandler = catchAsync(
       statusCode: httpStatus.OK,
       success: true,
       message: 'User cover image updated successfully!',
-      data: result,
-    });
-  }
-);
-
-const createOrUpdateOffer: RequestHandler = catchAsync(
-  async (req: Request, res: Response) => {
-    const result = await UserService.createOrUpdateOffer(
-      req.body,
-      req.user as Partial<IUser>
-    );
-
-    sendResponse<IUser>(res, {
-      statusCode: httpStatus.OK,
-      success: true,
-      message: 'Offer created successfully!',
-      data: result,
-    });
-  }
-);
-const uploadOfferDocuments: RequestHandler = catchAsync(
-  async (req: Request, res: Response) => {
-    const result = await UserService.uploadOfferDocuments(
-      req.files,
-      req.params.id
-    );
-
-    sendResponse<IUser>(res, {
-      statusCode: httpStatus.OK,
-      success: true,
-      message: 'Offer documents uploaded successfully!',
-      data: result,
-    });
-  }
-);
-const getOffers: RequestHandler = catchAsync(
-  async (req: Request, res: Response) => {
-    const result = await UserService.getOffers(req.user as Partial<IUser>);
-
-    sendResponse<IUser>(res, {
-      statusCode: httpStatus.OK,
-      success: true,
-      message: 'Offer created successfully!',
-      data: result,
-    });
-  }
-);
-const deleteOffer: RequestHandler = catchAsync(
-  async (req: Request, res: Response) => {
-    const result = await UserService.deleteOffer(req.params.id);
-
-    sendResponse<IUser>(res, {
-      statusCode: httpStatus.OK,
-      success: true,
-      message: 'Offer deleted successfully!',
-      data: result,
-    });
-  }
-);
-const updateOffer: RequestHandler = catchAsync(
-  async (req: Request, res: Response) => {
-    const result = await UserService.updateOffer(req.params.id, req.body);
-
-    sendResponse<IUser>(res, {
-      statusCode: httpStatus.OK,
-      success: true,
-      message: 'Offer updated successfully!',
-      data: result,
-    });
-  }
-);
-const updateOfferNotes: RequestHandler = catchAsync(
-  async (req: Request, res: Response) => {
-    const result = await UserService.updateOfferNotes(req.params.id, req.body);
-
-    sendResponse<IUser>(res, {
-      statusCode: httpStatus.OK,
-      success: true,
-      message: 'Offer notes updated successfully!',
       data: result,
     });
   }
@@ -374,18 +273,13 @@ export const UserController = {
   getUserProfile,
   updateOrCreateUserPersonalInformation,
   updateOrCreateUserProfessionalInformation,
-  // updateOrCreateUserDocuments,
+
   getUserById,
   updateCoverImage,
   getPros,
   joinWaitlist,
-  createOrUpdateOffer,
-  getOffers,
-  deleteOffer,
-  uploadOfferDocuments,
   storePro,
-  updateOffer,
-  updateOfferNotes,
+
   createNotification,
   getNotifications,
   deleteNotification,

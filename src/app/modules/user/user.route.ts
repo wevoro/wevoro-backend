@@ -25,16 +25,6 @@ router.patch(
   UserController.updateOrCreateUserProfessionalInformation
 );
 
-// router.patch(
-//   '/documents',
-//   auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.PRO, ENUM_USER_ROLE.ADMIN),
-//   upload.fields([
-//     { name: 'certificate', maxCount: 1 },
-//     { name: 'resume', maxCount: 1 },
-//     { name: 'governmentId', maxCount: 1 },
-//   ]),
-//   UserController.updateOrCreateUserDocuments
-// );
 router.patch(
   '/update/:id',
   auth(ENUM_USER_ROLE.ADMIN),
@@ -72,38 +62,6 @@ router.patch(
   UserController.updateCoverImage
 );
 
-router.post(
-  '/offer',
-  auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.ADMIN),
-  UserController.createOrUpdateOffer
-);
-router.post(
-  '/offer/upload/:id',
-  auth(ENUM_USER_ROLE.PRO, ENUM_USER_ROLE.ADMIN),
-  upload.array(`documents`),
-  UserController.uploadOfferDocuments
-);
-router.get(
-  '/offer',
-  auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.PRO, ENUM_USER_ROLE.ADMIN),
-  UserController.getOffers
-);
-router.delete(
-  '/offer/:id',
-  auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.ADMIN),
-  UserController.deleteOffer
-);
-router.patch(
-  '/offer/update/:id',
-  auth(ENUM_USER_ROLE.PRO, ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.ADMIN),
-  UserController.updateOffer
-);
-
-router.patch(
-  '/offer/notes/:id',
-  auth(ENUM_USER_ROLE.PRO, ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.ADMIN),
-  UserController.updateOfferNotes
-);
 router.post(
   '/store-pro',
   auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.ADMIN),

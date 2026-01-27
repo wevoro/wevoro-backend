@@ -12,13 +12,14 @@ import { calculatePartnerPercentage } from '../../../helpers/calculatePartnerPer
 import { sendEmail } from '../auth/sendMail';
 import { Documents } from '../document/documents.model';
 import { Notification } from './notification.model';
-import { Offer } from './offer.model';
+
 import { PersonalInfo } from './personal-info.model';
 import { Pro } from './pro.model';
 import { ProfessionalInfo } from './professional-info.model';
 import { Waitlist } from './waitlist.model';
 import { uploadFile } from '../../../helpers/bunny-upload';
 import { extractText } from 'unpdf';
+import { Offer } from '../offer/offer.model';
 cloudinary.v2.config({
   cloud_name: config.cloudinary.cloud_name,
   api_key: config.cloudinary.api_key,
@@ -236,55 +237,6 @@ const updateOrCreateUserProfessionalInformation = async (
 
   return result;
 };
-// const updateOrCreateUserDocuments = async (
-//   id: string,
-//   files: any,
-//   payload: any
-// ): Promise<any> => {
-//   let fileMap: any = {};
-
-//   if (files?.certificate?.[0]?.path) {
-//     fileMap.certificate = files.certificate[0].path;
-//   }
-//   if (files?.resume?.[0]?.path) {
-//     fileMap.resume = files.resume[0].path;
-//   }
-//   if (files?.governmentId?.[0]?.path) {
-//     fileMap.governmentId = files.governmentId[0].path;
-//   }
-
-//   if (Object.keys(fileMap).length > 0) {
-//     for (const file of Object.keys(fileMap)) {
-//       const cloudRes = await cloudinary.v2.uploader.upload(fileMap[file], {
-//         upload_preset: 'wevoro',
-//       });
-//       // console.log('cloudRes', cloudRes);
-//       fileMap[file] = cloudRes.secure_url;
-//     }
-//   }
-
-//   const isDocumentsExist = await Documents.findOne({ user: id });
-
-//   let result: any;
-
-//   if (!isDocumentsExist) {
-//     result = await Documents.create({ user: id, ...fileMap });
-//   }
-
-//   if (Object.keys(payload).length > 0) {
-//     fileMap = payload;
-//   }
-
-//   // console.log('query', fileMap);
-
-//   result = await Documents.findOneAndUpdate(
-//     { user: id },
-//     { $set: fileMap },
-//     { new: true }
-//   );
-
-//   return result;
-// };
 
 const handleCalculatePartnerPercentage = async (_id: string) => {
   const offersSent = await Offer.countDocuments({ partner: _id });
@@ -370,14 +322,6 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
         as: 'professionalInfo',
       },
     },
-    {
-      $lookup: {
-        from: 'documents',
-        localField: '_id',
-        foreignField: 'user',
-        as: 'documents',
-      },
-    },
 
     {
       $project: {
@@ -391,7 +335,6 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
         personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
         professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
 
-        documents: { $arrayElemAt: ['$documents', 0] },
         completionPercentage: {
           $cond: {
             if: {
@@ -560,144 +503,6 @@ const updateCoverImage = async (
   return result;
 };
 
-const createOrUpdateOffer = async (
-  payload: any,
-  user: Partial<IUser>
-): Promise<any> => {
-  // Ensure the payload has the partner ID
-  payload.partner = user._id;
-
-  // Check if `payload.offer` exists to differentiate between update and create
-  if (payload?.offer) {
-    // Try updating the document
-    const result = await Offer.findByIdAndUpdate(payload.offer, payload, {
-      new: true, // Return the updated document
-      upsert: true, // Create a new document if it doesn't exist
-      setDefaultsOnInsert: true, // Ensure default values are set
-    });
-
-    return result;
-  } else {
-    // If no `offer` ID is provided, create a new document explicitly
-    const newOffer = new Offer(payload);
-    const savedOffer = await newOffer.save();
-    return savedOffer;
-  }
-};
-
-const getOffers = async (user: Partial<IUser>): Promise<any> => {
-  const result = await Offer.aggregate([
-    {
-      $match: {
-        [user.role as string]: new mongoose.Types.ObjectId(user._id),
-        ...(user.role === 'pro' ? { isRemovedByPro: { $ne: true } } : {}),
-      },
-    },
-    {
-      $lookup: {
-        from: 'users',
-        localField: 'pro',
-        foreignField: '_id',
-        as: 'pro',
-        pipeline: [
-          {
-            $lookup: {
-              from: 'personalinformations',
-              localField: '_id',
-              foreignField: 'user',
-              as: 'personalInfo',
-            },
-          },
-          {
-            $lookup: {
-              from: 'professionalinformations',
-              localField: '_id',
-              foreignField: 'user',
-              as: 'professionalInfo',
-            },
-          },
-          {
-            $lookup: {
-              from: 'documents',
-              localField: '_id',
-              foreignField: 'user',
-              as: 'documents',
-            },
-          },
-          {
-            $addFields: {
-              personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
-              professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
-              documents: { $arrayElemAt: ['$documents', 0] },
-            },
-          },
-        ],
-      },
-    },
-    {
-      $lookup: {
-        from: 'users',
-        localField: 'partner',
-        foreignField: '_id',
-        as: 'partner',
-        pipeline: [
-          {
-            $lookup: {
-              from: 'personalinformations',
-              localField: '_id',
-              foreignField: 'user',
-              as: 'personalInfo',
-            },
-          },
-          {
-            $addFields: {
-              personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
-            },
-          },
-        ],
-      },
-    },
-    {
-      $sort: { createdAt: -1 }, // Sort by createdAt in descending order
-    },
-    {
-      $project: {
-        pro: { $arrayElemAt: ['$pro', 0] },
-        partner: { $arrayElemAt: ['$partner', 0] },
-        notes: 1,
-        documentsNeeded: 1,
-        status: 1,
-        jobLink: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      },
-    },
-  ]);
-
-  return result;
-};
-
-const deleteOffer = async (id: string): Promise<any> => {
-  const result = await Offer.findByIdAndDelete(id);
-  return result;
-};
-
-const updateOffer = async (id: string, payload: any): Promise<any> => {
-  const result = await Offer.findByIdAndUpdate(id, payload, { new: true });
-
-  return result;
-};
-
-const updateOfferNotes = async (id: string, payload: any): Promise<any> => {
-  const result = await Offer.findByIdAndUpdate(
-    id,
-    { $push: { notes: payload } },
-    { new: true }
-  );
-
-  return result;
-};
-
 const storePro = async (payload: any, user: Partial<IUser>): Promise<any> => {
   const { pro } = payload;
 
@@ -782,37 +587,6 @@ const getPros = async (user: Partial<IUser>): Promise<IUser[]> => {
   ]);
 
   return result.map(item => item.pro).reverse();
-};
-
-const uploadOfferDocuments = async (files: any, id: string): Promise<any> => {
-  const fileMap: any = {};
-  if (files.length > 0) {
-    for (const file of files) {
-      const cloudRes = await cloudinary.v2.uploader.upload(file.path, {
-        upload_preset: 'wevoro',
-      });
-      fileMap[file.originalname] = cloudRes.secure_url;
-    }
-  }
-
-  const offer = await Offer.findById(id);
-  if (!offer) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'Offer not found');
-  }
-
-  const documentsNeeded = offer.documentsNeeded;
-
-  const documents = documentsNeeded.map((document: any) => {
-    if (fileMap[document._id]) {
-      return { ...document, url: fileMap[document._id], status: 'uploaded' };
-    }
-    return document;
-  });
-
-  offer.documentsNeeded = documents;
-  offer.status = 'responded';
-  await offer.save();
-  return offer;
 };
 
 const createNotification = async (payload: any): Promise<any> => {
@@ -1003,13 +777,7 @@ export const UserService = {
   updateCoverImage,
   getPros,
   joinWaitlist,
-  createOrUpdateOffer,
-  getOffers,
-  deleteOffer,
   storePro,
-  uploadOfferDocuments,
-  updateOffer,
-  updateOfferNotes,
   createNotification,
   getNotifications,
   deleteNotification,

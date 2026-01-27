@@ -14,18 +14,34 @@ const OfferSchema = new Schema<any>(
     jobLink: {
       type: String,
     },
+
+    // All requested documents (existing from profile + new requests)
     documentsNeeded: [
       {
+        // Reference to existing document (null for new requests)
+        document: {
+          type: Schema.Types.ObjectId,
+          ref: 'Document',
+          default: null,
+        },
         title: {
+          type: String,
+          required: true,
+        },
+        category: {
+          type: String,
+        },
+        privacy: {
+          type: String,
+          // Only set for existing documents, null for new requests
+        },
+        url: {
           type: String,
         },
         status: {
           type: String,
-          enum: ['pending', 'uploaded'],
+          enum: ['pending', 'granted', 'denied'],
           default: 'pending',
-        },
-        url: {
-          type: String,
         },
       },
     ],
@@ -42,7 +58,7 @@ const OfferSchema = new Schema<any>(
     ],
     status: {
       type: String,
-      enum: ['pending', 'accepted', 'rejected', 'responded'],
+      enum: ['pending', 'onboarded', 'rejected', 'responded'],
       default: 'pending',
     },
     isRemovedByPro: {

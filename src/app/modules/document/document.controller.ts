@@ -7,16 +7,8 @@ import { DocumentService } from './document.service';
 const uploadDocument = catchAsync(async (req: Request, res: Response) => {
   const file = req.file;
   const userId = req.user?._id;
-  const { category, documentType, title, isProtected, consent, documentId } =
+  const { category, documentType, title, isPublic, consent, documentId } =
     req.body;
-
-  if (!file) {
-    return sendResponse(res, {
-      statusCode: httpStatus.BAD_REQUEST,
-      success: false,
-      message: 'File is required',
-    });
-  }
 
   const result = await DocumentService.uploadDocument(
     file,
@@ -24,7 +16,7 @@ const uploadDocument = catchAsync(async (req: Request, res: Response) => {
       category,
       documentType,
       title,
-      isProtected: isProtected === 'true' || isProtected === true,
+      isPublic: isPublic === 'true' || isPublic === true,
       consent: consent === 'true' || consent === true,
       user: userId as string,
     },
@@ -41,7 +33,8 @@ const uploadDocument = catchAsync(async (req: Request, res: Response) => {
 });
 
 const getUserDocuments = catchAsync(async (req: Request, res: Response) => {
-  const userId = req.user?._id;
+  const queryUserId = req.query.userId;
+  const userId = queryUserId ? queryUserId : req.user?._id;
 
   const result = await DocumentService.getUserDocuments(userId as string);
 
