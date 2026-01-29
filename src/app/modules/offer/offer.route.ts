@@ -46,4 +46,12 @@ router.patch(
   OfferController.updateDocumentStatus
 );
 
+// Pro responds to offer - unified endpoint for file uploads + status updates
+router.post(
+  '/pro-respond/:id',
+  auth(ENUM_USER_ROLE.PRO, ENUM_USER_ROLE.ADMIN),
+  upload.array('documents'),
+  OfferController.proRespondToOffer
+);
+
 export const OfferRoutes = router;

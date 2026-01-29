@@ -115,6 +115,31 @@ const updateDocumentStatus: RequestHandler = catchAsync(
   }
 );
 
+const proRespondToOffer: RequestHandler = catchAsync(
+  async (req: Request, res: Response) => {
+    const offerId = req.params.id;
+    const files = req.files as { originalname: string; path: string }[];
+    // Status updates are passed as JSON string in form data
+    const statusUpdates = req.body.statusUpdates
+      ? JSON.parse(req.body.statusUpdates)
+      : [];
+
+    const result = await OfferService.proRespondToOffer(
+      offerId,
+      files || [],
+      statusUpdates,
+      req.user as Partial<IUser>
+    );
+
+    sendResponse<IUser>(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: 'Response submitted successfully!',
+      data: result,
+    });
+  }
+);
+
 export const OfferController = {
   createOrUpdateOffer,
   uploadOfferDocuments,
@@ -123,4 +148,5 @@ export const OfferController = {
   updateOffer,
   updateOfferNotes,
   updateDocumentStatus,
+  proRespondToOffer,
 };

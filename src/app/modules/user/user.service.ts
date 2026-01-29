@@ -174,6 +174,7 @@ const updateOrCreateUserPersonalInformation = async (
 
   return result;
 };
+
 const updateOrCreateUserProfessionalInformation = async (
   payload: any,
   id: string,

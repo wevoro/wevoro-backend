@@ -84,8 +84,9 @@ const updateOrCreateUserPersonalInformation = catchAsync(
 const updateOrCreateUserProfessionalInformation = catchAsync(
   async (req: Request, res: Response) => {
     const data = JSON.parse(req.body.data || '{}');
-    console.log('🚀 ~ data:', data);
     const files = req.files;
+    console.log('🚀 ~ data:', data);
+    console.log('🚀 ~ files:', files);
     const queryId = req.query.id;
 
     const id = queryId ? queryId : req.user?._id;

@@ -454,6 +454,121 @@ const updateDocumentStatus = async (
   return offer;
 };
 
+// Pro responds to offer - handles both file uploads and access status updates atomically
+const proRespondToOffer = async (
+  offerId: string,
+  files: any[],
+  statusUpdates: { documentId: string; status: 'granted' | 'denied' }[],
+  user: Partial<IUser>
+): Promise<any> => {
+  const offer = await Offer.findById(offerId);
+  if (!offer) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Offer not found');
+  }
+
+  const uploadedDocs: string[] = [];
+  const grantedDocs: string[] = [];
+  const deniedDocs: string[] = [];
+
+  // 1. Handle file uploads for missing documents
+  if (files && files.length > 0) {
+    const fileMap: Record<string, string> = {};
+    for (const file of files) {
+      const bunnyUrl = await uploadFile(file);
+      fileMap[file.originalname] = bunnyUrl;
+    }
+
+    // Update documents with uploaded files
+    offer.documentsNeeded = offer.documentsNeeded.map((doc: any) => {
+      if (fileMap[doc._id.toString()]) {
+        uploadedDocs.push(doc.title);
+        return {
+          ...doc.toObject(),
+          url: fileMap[doc._id.toString()],
+          status: 'granted',
+        };
+      }
+      return doc;
+    });
+  }
+
+  // 2. Handle access status updates for existing documents
+  if (statusUpdates && statusUpdates.length > 0) {
+    for (const { documentId, status } of statusUpdates) {
+      const docIndex = offer.documentsNeeded.findIndex(
+        (doc: any) => doc._id.toString() === documentId
+      );
+
+      if (docIndex !== -1) {
+        offer.documentsNeeded[docIndex].status = status;
+        const docTitle = offer.documentsNeeded[docIndex].title;
+        if (status === 'granted') {
+          grantedDocs.push(docTitle);
+        } else {
+          deniedDocs.push(docTitle);
+        }
+      }
+    }
+  }
+
+  // 3. Update offer status to 'responded'
+  if (offer.status === 'pending') {
+    offer.status = 'responded';
+  }
+
+  // 4. Save all changes atomically
+  await offer.save();
+
+  // 5. Send consolidated notification to partner
+  try {
+    const proInfo = await PersonalInfo.findOne({ user: user._id });
+    const proName = proInfo
+      ? `${proInfo.firstName} ${proInfo.lastName}`
+      : 'The pro';
+
+    const partner = await User.findById(offer.partner);
+
+    // Build notification message
+    const actions: string[] = [];
+    if (uploadedDocs.length > 0) {
+      actions.push(
+        `uploaded ${uploadedDocs.length} document(s): ${uploadedDocs.join(
+          ', '
+        )}`
+      );
+    }
+    if (grantedDocs.length > 0) {
+      actions.push(`granted access to: ${grantedDocs.join(', ')}`);
+    }
+    if (deniedDocs.length > 0) {
+      actions.push(`denied access to: ${deniedDocs.join(', ')}`);
+    }
+
+    if (actions.length > 0) {
+      const message = `<p><span style="font-weight: 600; color: #008000;">${proName}</span> has responded to your offer: ${actions.join(
+        '; '
+      )}.</p>`;
+
+      await Notification.create({
+        user: offer.partner,
+        message,
+      });
+
+      if (partner?.email) {
+        await sendEmail(
+          partner.email,
+          'Pro Responded to Your Offer',
+          `<div>${message}<p>Thank you</p></div>`
+        );
+      }
+    }
+  } catch (error) {
+    console.error('Failed to send notification:', error);
+  }
+
+  return offer;
+};
+
 export const OfferService = {
   createOrUpdateOffer,
   getOffers,
@@ -462,4 +577,5 @@ export const OfferService = {
   updateOfferNotes,
   uploadOfferDocuments,
   updateDocumentStatus,
+  proRespondToOffer,
 };
