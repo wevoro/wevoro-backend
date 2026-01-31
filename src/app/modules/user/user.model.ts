@@ -30,7 +30,7 @@ const UserSchema = new Schema<IUser, UserModel>(
     },
     status: {
       type: String,
-      enum: ['approved', 'pending', 'rejected', 'blocked'],
+      enum: ['approved', 'pending', 'rejected', 'blocked', 'in-review'],
       default: 'pending',
     },
 
@@ -49,6 +49,10 @@ const UserSchema = new Schema<IUser, UserModel>(
     canResetPassword: {
       type: Boolean,
       default: false,
+    },
+    lastLoginAt: {
+      type: Date,
+      default: null,
     },
   },
   {

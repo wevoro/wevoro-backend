@@ -59,6 +59,8 @@ const loginUser = async (payload: ILoginUser): Promise<ILoginUserResponse> => {
     }
   }
 
+  await User.findByIdAndUpdate(_id, { lastLoginAt: new Date() });
+
   //create access token & refresh token
 
   const accessToken = jwtHelpers.createToken(

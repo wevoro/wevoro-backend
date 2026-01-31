@@ -5,6 +5,7 @@ import { FeedbackRoutes } from '../modules/user/feedback.route';
 import { UserRoutes } from '../modules/user/user.route';
 import { DocumentRoutes } from '../modules/document/document.route';
 import { OfferRoutes } from '../modules/offer/offer.route';
+import { PartnerVerificationRoutes } from '../modules/partner-verification/partner-verification.route';
 
 const router = express.Router();
 
@@ -20,6 +21,10 @@ const moduleRoutes = [
   {
     path: '/offer',
     route: OfferRoutes,
+  },
+  {
+    path: '/partner-verification',
+    route: PartnerVerificationRoutes,
   },
   {
     path: '/auth',

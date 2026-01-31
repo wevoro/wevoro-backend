@@ -20,6 +20,7 @@ import { Waitlist } from './waitlist.model';
 import { uploadFile } from '../../../helpers/bunny-upload';
 import { extractText } from 'unpdf';
 import { Offer } from '../offer/offer.model';
+import { PartnerVerification } from '../partner-verification/partner-verification.model';
 cloudinary.v2.config({
   cloud_name: config.cloudinary.cloud_name,
   api_key: config.cloudinary.api_key,
@@ -100,12 +101,15 @@ const deleteAccount = async (user: Partial<IUser>) => {
         PersonalInfo.deleteMany({ user: userId }, { session }),
         ProfessionalInfo.deleteMany({ user: userId }, { session }),
         Pro.deleteMany({ pro: userId }, { session }),
+        Notification.deleteMany({ user: userId }),
       ]);
     } else if (userRole === ENUM_USER_ROLE.PARTNER) {
       await Promise.all([
         PersonalInfo.deleteMany({ user: userId }, { session }),
         Pro.deleteMany({ partner: userId }, { session }),
         Offer.deleteMany({ partner: userId }, { session }),
+        Notification.deleteMany({ user: userId }),
+        PartnerVerification.deleteMany({ partner: userId }, { session }),
       ]);
     }
 
@@ -123,7 +127,7 @@ const deleteAccount = async (user: Partial<IUser>) => {
 };
 
 const updateUser = async (
-  payload: Partial<IUser>,
+  payload: Partial<IUser> | any,
   id: string
   // file: any
 ): Promise<IUser | null> => {
@@ -139,6 +143,50 @@ const updateUser = async (
   const result = await User.findByIdAndUpdate(id, payload, {
     new: true,
   });
+
+  if (payload.alertType) {
+    const { note, alertType } = payload;
+    const messageMap: any = {
+      block: note
+        ? `<p style="font-size: 16px; color: red;">You have been <strong>blocked</strong> from the platform. <br/> <br/> <strong>Note:</strong> ${note}</p>`
+        : `<p style="font-size: 16px; color: red;">You have been <strong>blocked</strong> from the platform.</p>`,
+      remove: note
+        ? `<p style="font-size: 16px; color: red;">You have been <strong>removed</strong> from the platform. <br/> <br/> <strong>Note:</strong> ${note}</p>`
+        : `<p style="font-size: 16px; color: red;">You have been <strong>removed</strong> from the platform.</p>`,
+      approve: note
+        ? `<p style="font-size: 16px; color: green;">Your application has been <strong>approved</strong>. <br/> <br/> <strong>Note:</strong> ${note}</p>`
+        : `<p style="font-size: 16px; color: green;">Your application has been <strong>approved</strong>.</p>`,
+      reject: note
+        ? `<p style="font-size: 16px; color: red;">Your application has been <strong>rejected</strong>. <br/> <br/> <strong>Note:</strong> ${note}</p>`
+        : `<p style="font-size: 16px; color: red;">Your application has been <strong>rejected</strong>.</p>`,
+    };
+
+    const message = messageMap[alertType];
+
+    if (message) {
+      let email = payload.email;
+      if (!email && result) {
+        email = result.email;
+      }
+
+      await Notification.create({
+        user: id,
+        message,
+      });
+
+      await sendEmail(
+        email,
+        'Notification',
+        `
+        <div>
+          ${message}
+          <p>Thank you</p>
+        </div>
+        `
+      );
+    }
+  }
+
   return result;
 };
 
@@ -335,7 +383,20 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
         updatedAt: 1,
         personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
         professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
-
+        isRecentlyActive: {
+          $cond: {
+            if: { $ifNull: ['$lastLoginAt', false] },
+            then: {
+              $lt: [
+                {
+                  $subtract: ['$$NOW', '$lastLoginAt'],
+                },
+                7 * 24 * 60 * 60 * 1000,
+              ],
+            },
+            else: false,
+          },
+        },
         completionPercentage: {
           $cond: {
             if: {
@@ -418,8 +479,23 @@ const getUserById = async (id: string): Promise<IUser | null> => {
         createdAt: 1,
         updatedAt: 1,
         status: 1,
+        lastLoginAt: 1,
         personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
         professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
+        isRecentlyActive: {
+          $cond: {
+            if: { $ifNull: ['$lastLoginAt', false] },
+            then: {
+              $lt: [
+                {
+                  $subtract: ['$$NOW', '$lastLoginAt'],
+                },
+                7 * 24 * 60 * 60 * 1000,
+              ],
+            },
+            else: false,
+          },
+        },
 
         documents: { $arrayElemAt: ['$documents', 0] },
         sharableLink: sharableLink,
@@ -471,8 +547,23 @@ const getUsers = async (): Promise<IUser[]> => {
         createdAt: 1,
         updatedAt: 1,
         status: 1,
+        lastLoginAt: 1,
         personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
         professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
+        isRecentlyActive: {
+          $cond: {
+            if: { $ifNull: ['$lastLoginAt', false] },
+            then: {
+              $lt: [
+                {
+                  $subtract: ['$$NOW', '$lastLoginAt'],
+                },
+                7 * 24 * 60 * 60 * 1000,
+              ],
+            },
+            else: false,
+          },
+        },
         documents: { $arrayElemAt: ['$documents', 0] },
       },
     },
@@ -571,6 +662,24 @@ const getPros = async (user: Partial<IUser>): Promise<IUser[]> => {
               isGoogleUser: 0,
               canResetPassword: 0,
               __v: 0,
+            },
+          },
+          {
+            $addFields: {
+              isRecentlyActive: {
+                $cond: {
+                  if: { $ifNull: ['$lastLoginAt', false] },
+                  then: {
+                    $lt: [
+                      {
+                        $subtract: ['$$NOW', '$lastLoginAt'],
+                      },
+                      7 * 24 * 60 * 60 * 1000,
+                    ],
+                  },
+                  else: false,
+                },
+              },
             },
           },
         ],
