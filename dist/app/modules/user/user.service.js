@@ -32,6 +32,7 @@ const waitlist_model_1 = require("./waitlist.model");
 const bunny_upload_1 = require("../../../helpers/bunny-upload");
 const unpdf_1 = require("unpdf");
 const offer_model_1 = require("../offer/offer.model");
+const partner_verification_model_1 = require("../partner-verification/partner-verification.model");
 cloudinary_1.default.v2.config({
     cloud_name: config_1.default.cloudinary.cloud_name,
     api_key: config_1.default.cloudinary.api_key,
@@ -89,6 +90,7 @@ const deleteAccount = (user) => __awaiter(void 0, void 0, void 0, function* () {
                 personal_info_model_1.PersonalInfo.deleteMany({ user: userId }, { session }),
                 professional_info_model_1.ProfessionalInfo.deleteMany({ user: userId }, { session }),
                 pro_model_1.Pro.deleteMany({ pro: userId }, { session }),
+                notification_model_1.Notification.deleteMany({ user: userId }),
             ]);
         }
         else if (userRole === user_1.ENUM_USER_ROLE.PARTNER) {
@@ -96,6 +98,8 @@ const deleteAccount = (user) => __awaiter(void 0, void 0, void 0, function* () {
                 personal_info_model_1.PersonalInfo.deleteMany({ user: userId }, { session }),
                 pro_model_1.Pro.deleteMany({ partner: userId }, { session }),
                 offer_model_1.Offer.deleteMany({ partner: userId }, { session }),
+                notification_model_1.Notification.deleteMany({ user: userId }),
+                partner_verification_model_1.PartnerVerification.deleteMany({ partner: userId }, { session }),
             ]);
         }
         yield session.commitTransaction();
@@ -122,6 +126,40 @@ const updateUser = (payload, id
     const result = yield user_model_1.User.findByIdAndUpdate(id, payload, {
         new: true,
     });
+    if (payload.alertType) {
+        const { note, alertType } = payload;
+        const messageMap = {
+            block: note
+                ? `<p style="font-size: 16px; color: red;">You have been <strong>blocked</strong> from the platform. <br/> <br/> <strong>Note:</strong> ${note}</p>`
+                : `<p style="font-size: 16px; color: red;">You have been <strong>blocked</strong> from the platform.</p>`,
+            remove: note
+                ? `<p style="font-size: 16px; color: red;">You have been <strong>removed</strong> from the platform. <br/> <br/> <strong>Note:</strong> ${note}</p>`
+                : `<p style="font-size: 16px; color: red;">You have been <strong>removed</strong> from the platform.</p>`,
+            approve: note
+                ? `<p style="font-size: 16px; color: green;">Your application has been <strong>approved</strong>. <br/> <br/> <strong>Note:</strong> ${note}</p>`
+                : `<p style="font-size: 16px; color: green;">Your application has been <strong>approved</strong>.</p>`,
+            reject: note
+                ? `<p style="font-size: 16px; color: red;">Your application has been <strong>rejected</strong>. <br/> <br/> <strong>Note:</strong> ${note}</p>`
+                : `<p style="font-size: 16px; color: red;">Your application has been <strong>rejected</strong>.</p>`,
+        };
+        const message = messageMap[alertType];
+        if (message) {
+            let email = payload.email;
+            if (!email && result) {
+                email = result.email;
+            }
+            yield notification_model_1.Notification.create({
+                user: id,
+                message,
+            });
+            yield (0, sendMail_1.sendEmail)(email, 'Notification', `
+        <div>
+          ${message}
+          <p>Thank you</p>
+        </div>
+        `);
+        }
+    }
     return result;
 });
 const updateOrCreateUserPersonalInformation = (payload, id, file) => __awaiter(void 0, void 0, void 0, function* () {
@@ -266,6 +304,20 @@ const getUserProfile = (user) => __awaiter(void 0, void 0, void 0, function* () 
                 updatedAt: 1,
                 personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
                 professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
+                isRecentlyActive: {
+                    $cond: {
+                        if: { $ifNull: ['$lastLoginAt', false] },
+                        then: {
+                            $lt: [
+                                {
+                                    $subtract: ['$$NOW', '$lastLoginAt'],
+                                },
+                                7 * 24 * 60 * 60 * 1000,
+                            ],
+                        },
+                        else: false,
+                    },
+                },
                 completionPercentage: {
                     $cond: {
                         if: {
@@ -343,8 +395,23 @@ const getUserById = (id) => __awaiter(void 0, void 0, void 0, function* () {
                 createdAt: 1,
                 updatedAt: 1,
                 status: 1,
+                lastLoginAt: 1,
                 personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
                 professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
+                isRecentlyActive: {
+                    $cond: {
+                        if: { $ifNull: ['$lastLoginAt', false] },
+                        then: {
+                            $lt: [
+                                {
+                                    $subtract: ['$$NOW', '$lastLoginAt'],
+                                },
+                                7 * 24 * 60 * 60 * 1000,
+                            ],
+                        },
+                        else: false,
+                    },
+                },
                 documents: { $arrayElemAt: ['$documents', 0] },
                 sharableLink: sharableLink,
                 // offersSent: offersSentData,
@@ -393,8 +460,23 @@ const getUsers = () => __awaiter(void 0, void 0, void 0, function* () {
                 createdAt: 1,
                 updatedAt: 1,
                 status: 1,
+                lastLoginAt: 1,
                 personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
                 professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
+                isRecentlyActive: {
+                    $cond: {
+                        if: { $ifNull: ['$lastLoginAt', false] },
+                        then: {
+                            $lt: [
+                                {
+                                    $subtract: ['$$NOW', '$lastLoginAt'],
+                                },
+                                7 * 24 * 60 * 60 * 1000,
+                            ],
+                        },
+                        else: false,
+                    },
+                },
                 documents: { $arrayElemAt: ['$documents', 0] },
             },
         },
@@ -477,6 +559,24 @@ const getPros = (user) => __awaiter(void 0, void 0, void 0, function* () {
                             isGoogleUser: 0,
                             canResetPassword: 0,
                             __v: 0,
+                        },
+                    },
+                    {
+                        $addFields: {
+                            isRecentlyActive: {
+                                $cond: {
+                                    if: { $ifNull: ['$lastLoginAt', false] },
+                                    then: {
+                                        $lt: [
+                                            {
+                                                $subtract: ['$$NOW', '$lastLoginAt'],
+                                            },
+                                            7 * 24 * 60 * 60 * 1000,
+                                        ],
+                                    },
+                                    else: false,
+                                },
+                            },
                         },
                     },
                 ],

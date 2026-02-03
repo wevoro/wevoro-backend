@@ -41,7 +41,7 @@ const UserSchema = new mongoose_1.Schema({
     },
     status: {
         type: String,
-        enum: ['approved', 'pending', 'rejected', 'blocked'],
+        enum: ['approved', 'pending', 'rejected', 'blocked', 'in-review'],
         default: 'pending',
     },
     isGoogleUser: {
@@ -59,6 +59,10 @@ const UserSchema = new mongoose_1.Schema({
     canResetPassword: {
         type: Boolean,
         default: false,
+    },
+    lastLoginAt: {
+        type: Date,
+        default: null,
     },
 }, {
     timestamps: true,

@@ -81,6 +81,21 @@ const updateDocumentStatus = (0, catchAsync_1.default)((req, res) => __awaiter(v
         data: result,
     });
 }));
+const proRespondToOffer = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const offerId = req.params.id;
+    const files = req.files;
+    // Status updates are passed as JSON string in form data
+    const statusUpdates = req.body.statusUpdates
+        ? JSON.parse(req.body.statusUpdates)
+        : [];
+    const result = yield offer_service_1.OfferService.proRespondToOffer(offerId, files || [], statusUpdates, req.user);
+    (0, sendResponse_1.default)(res, {
+        statusCode: http_status_1.default.OK,
+        success: true,
+        message: 'Response submitted successfully!',
+        data: result,
+    });
+}));
 exports.OfferController = {
     createOrUpdateOffer,
     uploadOfferDocuments,
@@ -89,4 +104,5 @@ exports.OfferController = {
     updateOffer,
     updateOfferNotes,
     updateDocumentStatus,
+    proRespondToOffer,
 };

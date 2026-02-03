@@ -9,6 +9,7 @@ const feedback_route_1 = require("../modules/user/feedback.route");
 const user_route_1 = require("../modules/user/user.route");
 const document_route_1 = require("../modules/document/document.route");
 const offer_route_1 = require("../modules/offer/offer.route");
+const partner_verification_route_1 = require("../modules/partner-verification/partner-verification.route");
 const router = express_1.default.Router();
 const moduleRoutes = [
     {
@@ -22,6 +23,10 @@ const moduleRoutes = [
     {
         path: '/offer',
         route: offer_route_1.OfferRoutes,
+    },
+    {
+        path: '/partner-verification',
+        route: partner_verification_route_1.PartnerVerificationRoutes,
     },
     {
         path: '/auth',

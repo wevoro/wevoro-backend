@@ -19,4 +19,6 @@ router.delete('/:id', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.
 router.patch('/update/:id', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.ADMIN), offer_controller_1.OfferController.updateOffer);
 router.patch('/notes/:id', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.ADMIN), offer_controller_1.OfferController.updateOfferNotes);
 router.patch('/document-status', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.ADMIN), offer_controller_1.OfferController.updateDocumentStatus);
+// Pro responds to offer - unified endpoint for file uploads + status updates
+router.post('/pro-respond/:id', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.ADMIN), upload.array('documents'), offer_controller_1.OfferController.proRespondToOffer);
 exports.OfferRoutes = router;

@@ -14,6 +14,7 @@ const verifyPartner = async (
   file: any,
   payload: VerificationPayload
 ): Promise<any> => {
+  console.log('🚀 ~ verifyPartner ~ payload:', payload);
   // Check if a verification document already exists for this user
   const existingVerification = await PartnerVerification.findOne({
     partner: payload.user,
