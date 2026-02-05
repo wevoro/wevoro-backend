@@ -294,6 +294,14 @@ const getUserProfile = (user) => __awaiter(void 0, void 0, void 0, function* () 
             },
         },
         {
+            $lookup: {
+                from: 'partnerverifications',
+                localField: '_id',
+                foreignField: 'partner',
+                as: 'partnerVerification',
+            },
+        },
+        {
             $project: {
                 email: 1,
                 role: 1,
@@ -304,6 +312,7 @@ const getUserProfile = (user) => __awaiter(void 0, void 0, void 0, function* () 
                 updatedAt: 1,
                 personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
                 professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
+                partnerVerification: { $arrayElemAt: ['$partnerVerification', 0] },
                 isRecentlyActive: {
                     $cond: {
                         if: { $ifNull: ['$lastLoginAt', false] },
@@ -447,6 +456,14 @@ const getUsers = () => __awaiter(void 0, void 0, void 0, function* () {
                 as: 'documents',
             },
         },
+        {
+            $lookup: {
+                from: 'partnerverifications',
+                localField: '_id',
+                foreignField: 'partner',
+                as: 'partnerVerification',
+            },
+        },
         // {
         //   $sort: { createdAt: -1 },
         // },
@@ -478,6 +495,7 @@ const getUsers = () => __awaiter(void 0, void 0, void 0, function* () {
                     },
                 },
                 documents: { $arrayElemAt: ['$documents', 0] },
+                partnerVerification: { $arrayElemAt: ['$partnerVerification', 0] },
             },
         },
     ]);

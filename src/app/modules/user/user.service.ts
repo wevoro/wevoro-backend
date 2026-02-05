@@ -371,6 +371,14 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
         as: 'professionalInfo',
       },
     },
+    {
+      $lookup: {
+        from: 'partnerverifications',
+        localField: '_id',
+        foreignField: 'partner',
+        as: 'partnerVerification',
+      },
+    },
 
     {
       $project: {
@@ -383,6 +391,7 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
         updatedAt: 1,
         personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
         professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
+        partnerVerification: { $arrayElemAt: ['$partnerVerification', 0] },
         isRecentlyActive: {
           $cond: {
             if: { $ifNull: ['$lastLoginAt', false] },
@@ -533,6 +542,14 @@ const getUsers = async (): Promise<IUser[]> => {
         as: 'documents',
       },
     },
+    {
+      $lookup: {
+        from: 'partnerverifications',
+        localField: '_id',
+        foreignField: 'partner',
+        as: 'partnerVerification',
+      },
+    },
     // {
     //   $sort: { createdAt: -1 },
     // },
@@ -565,6 +582,7 @@ const getUsers = async (): Promise<IUser[]> => {
           },
         },
         documents: { $arrayElemAt: ['$documents', 0] },
+        partnerVerification: { $arrayElemAt: ['$partnerVerification', 0] },
       },
     },
   ]);
