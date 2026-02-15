@@ -36,12 +36,13 @@ const createOrUpdateOffer = (payload, user) => __awaiter(void 0, void 0, void 0,
             new: true, // Return the updated document
             upsert: true, // Create a new document if it doesn't exist
             setDefaultsOnInsert: true, // Ensure default values are set
-        });
+        }).populate('documentsNeeded.document');
     }
     else {
         // If no `offer` ID is provided, create a new document explicitly
         const newOffer = new offer_model_1.Offer(payload);
         result = yield newOffer.save();
+        yield result.populate('documentsNeeded.document');
     }
     // Send notification to the Pro user
     try {

@@ -554,18 +554,9 @@ const getPros = (user) => __awaiter(void 0, void 0, void 0, function* () {
                         },
                     },
                     {
-                        $lookup: {
-                            from: 'documents',
-                            localField: '_id',
-                            foreignField: 'user',
-                            as: 'documents',
-                        },
-                    },
-                    {
                         $addFields: {
                             personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
                             professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
-                            documents: { $arrayElemAt: ['$documents', 0] },
                         },
                     },
                     {

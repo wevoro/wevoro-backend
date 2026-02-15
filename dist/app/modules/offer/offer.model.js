@@ -21,7 +21,7 @@ const OfferSchema = new mongoose_1.Schema({
             // Reference to existing document (null for new requests)
             document: {
                 type: mongoose_1.Schema.Types.ObjectId,
-                ref: 'Document',
+                ref: 'Documents',
                 default: null,
             },
             title: {

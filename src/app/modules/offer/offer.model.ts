@@ -21,7 +21,7 @@ const OfferSchema = new Schema<any>(
         // Reference to existing document (null for new requests)
         document: {
           type: Schema.Types.ObjectId,
-          ref: 'Document',
+          ref: 'Documents',
           default: null,
         },
         title: {

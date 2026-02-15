@@ -28,11 +28,12 @@ const createOrUpdateOffer = async (
       new: true, // Return the updated document
       upsert: true, // Create a new document if it doesn't exist
       setDefaultsOnInsert: true, // Ensure default values are set
-    });
+    }).populate('documentsNeeded.document');
   } else {
     // If no `offer` ID is provided, create a new document explicitly
     const newOffer = new Offer(payload);
     result = await newOffer.save();
+    await result.populate('documentsNeeded.document');
   }
 
   // Send notification to the Pro user
