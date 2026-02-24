@@ -318,13 +318,11 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
 
   if (role === ENUM_USER_ROLE.PRO) {
     const professionalInfo = await ProfessionalInfo.findOne({ user: _id });
-    const documents = await Documents.findOne({ user: _id });
 
     const totalSteps = 3;
     const completedSteps = [
       Object.keys(personalInfo || {}).length > 0,
       Object.keys(professionalInfo || {}).length > 0,
-      Object.keys(documents || {}).length > 0,
     ].filter(Boolean).length;
 
     completionPercentage = Math.floor((completedSteps / totalSteps) * 100);
@@ -469,14 +467,6 @@ const getUserById = async (id: string): Promise<IUser | null> => {
         as: 'professionalInfo',
       },
     },
-    {
-      $lookup: {
-        from: 'documents',
-        localField: '_id',
-        foreignField: 'user',
-        as: 'documents',
-      },
-    },
 
     {
       $project: {
@@ -505,8 +495,6 @@ const getUserById = async (id: string): Promise<IUser | null> => {
             else: false,
           },
         },
-
-        documents: { $arrayElemAt: ['$documents', 0] },
         sharableLink: sharableLink,
         // offersSent: offersSentData,
         // jobConversionPercentage: jobConversionPData,
@@ -534,14 +522,7 @@ const getUsers = async (): Promise<IUser[]> => {
         as: 'professionalInfo',
       },
     },
-    {
-      $lookup: {
-        from: 'documents',
-        localField: '_id',
-        foreignField: 'user',
-        as: 'documents',
-      },
-    },
+
     {
       $lookup: {
         from: 'partnerverifications',
@@ -581,7 +562,6 @@ const getUsers = async (): Promise<IUser[]> => {
             else: false,
           },
         },
-        documents: { $arrayElemAt: ['$documents', 0] },
         partnerVerification: { $arrayElemAt: ['$partnerVerification', 0] },
       },
     },

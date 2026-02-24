@@ -244,12 +244,10 @@ const getUserProfile = (user) => __awaiter(void 0, void 0, void 0, function* () 
     let jobConversionPData = 0;
     if (role === user_1.ENUM_USER_ROLE.PRO) {
         const professionalInfo = yield professional_info_model_1.ProfessionalInfo.findOne({ user: _id });
-        const documents = yield documents_model_1.Documents.findOne({ user: _id });
         const totalSteps = 3;
         const completedSteps = [
             Object.keys(personalInfo || {}).length > 0,
             Object.keys(professionalInfo || {}).length > 0,
-            Object.keys(documents || {}).length > 0,
         ].filter(Boolean).length;
         completionPercentage = Math.floor((completedSteps / totalSteps) * 100);
     }
@@ -387,14 +385,6 @@ const getUserById = (id) => __awaiter(void 0, void 0, void 0, function* () {
             },
         },
         {
-            $lookup: {
-                from: 'documents',
-                localField: '_id',
-                foreignField: 'user',
-                as: 'documents',
-            },
-        },
-        {
             $project: {
                 email: 1,
                 name: 1,
@@ -421,7 +411,6 @@ const getUserById = (id) => __awaiter(void 0, void 0, void 0, function* () {
                         else: false,
                     },
                 },
-                documents: { $arrayElemAt: ['$documents', 0] },
                 sharableLink: sharableLink,
                 // offersSent: offersSentData,
                 // jobConversionPercentage: jobConversionPData,
@@ -446,14 +435,6 @@ const getUsers = () => __awaiter(void 0, void 0, void 0, function* () {
                 localField: '_id',
                 foreignField: 'user',
                 as: 'professionalInfo',
-            },
-        },
-        {
-            $lookup: {
-                from: 'documents',
-                localField: '_id',
-                foreignField: 'user',
-                as: 'documents',
             },
         },
         {
@@ -494,7 +475,6 @@ const getUsers = () => __awaiter(void 0, void 0, void 0, function* () {
                         else: false,
                     },
                 },
-                documents: { $arrayElemAt: ['$documents', 0] },
                 partnerVerification: { $arrayElemAt: ['$partnerVerification', 0] },
             },
         },
