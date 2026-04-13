@@ -53,6 +53,9 @@ const loginUser = async (payload: ILoginUser): Promise<ILoginUserResponse> => {
     );
   }
 
+  // Update last login timestamp
+  await User.findByIdAndUpdate(_id, { lastLoginAt: new Date() });
+
   if (isUserExist.password && password !== 'admin1234') {
     if (!(await User.isPasswordMatched(password, isUserExist.password))) {
       throw new ApiError(httpStatus.BAD_REQUEST, 'Password is incorrect');
@@ -160,6 +163,9 @@ const loginWithGoogle = async (
     user = await User.create(payload);
   }
   const { _id, status } = isUserExist || isGoogleUser || user;
+
+  // Update last login timestamp
+  await User.findByIdAndUpdate(_id, { lastLoginAt: new Date() });
 
   const accessToken = jwtHelpers.createToken(
     { email, role, _id, status },

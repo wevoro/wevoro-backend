@@ -145,6 +145,15 @@ const updateOrCreateUserPersonalInformation = async (
   id: string,
   file: any
 ): Promise<IUser | null> => {
+  // Prevent rejected or blocked users from updating their profile
+  const currentUser = await User.findById(id);
+  if (currentUser && (currentUser.status === 'rejected' || currentUser.status === 'blocked')) {
+    throw new ApiError(
+      httpStatus.FORBIDDEN,
+      `Your account has been ${currentUser.status}. Please contact support.`
+    );
+  }
+
   const isPersonalInformationExist = await PersonalInfo.findOne({
     user: id,
   });
@@ -177,6 +186,15 @@ const updateOrCreateUserProfessionalInformation = async (
   id: string,
   files: any
 ): Promise<any> => {
+  // Prevent rejected or blocked users from updating their profile
+  const currentUser = await User.findById(id);
+  if (currentUser && (currentUser.status === 'rejected' || currentUser.status === 'blocked')) {
+    throw new ApiError(
+      httpStatus.FORBIDDEN,
+      `Your account has been ${currentUser.status}. Please contact support.`
+    );
+  }
+
   const { certifications }: any = payload;
 
   // Upload files to Cloudinary and create a map indexed by certification position
@@ -387,6 +405,7 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
         coverImage: 1,
         createdAt: 1,
         updatedAt: 1,
+        lastLoginAt: 1,
         personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
         professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
 
@@ -473,6 +492,7 @@ const getUserById = async (id: string): Promise<IUser | null> => {
         createdAt: 1,
         updatedAt: 1,
         status: 1,
+        lastLoginAt: 1,
         personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
         professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
 
@@ -526,6 +546,7 @@ const getUsers = async (): Promise<IUser[]> => {
         createdAt: 1,
         updatedAt: 1,
         status: 1,
+        lastLoginAt: 1,
         personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
         professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
         documents: { $arrayElemAt: ['$documents', 0] },

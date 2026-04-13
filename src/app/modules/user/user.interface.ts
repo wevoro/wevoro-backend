@@ -15,6 +15,7 @@ export type IUser = {
   coverImage: string;
   otpExpiry: Date;
   canResetPassword: boolean;
+  lastLoginAt: Date;
   personalInformation: {
     bio: string;
     dateOfBirth: Date;

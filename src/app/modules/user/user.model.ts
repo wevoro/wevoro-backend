@@ -50,6 +50,10 @@ const UserSchema = new Schema<IUser, UserModel>(
       type: Boolean,
       default: false,
     },
+    lastLoginAt: {
+      type: Date,
+      required: false,
+    },
   },
   {
     timestamps: true,
