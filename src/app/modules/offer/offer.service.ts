@@ -212,11 +212,19 @@ const getOffers = async (user: Partial<IUser>): Promise<any> => {
           privacy: populatedDoc?.privacy || docNeeded.privacy,
           documentType:
             populatedDoc?.documentType || docNeeded.documentType || null,
-          url: populatedDoc?.url || docNeeded.url || null,
+          // Strip URL for denied documents to prevent unauthorized access
+          url:
+            docNeeded.status === 'denied'
+              ? null
+              : populatedDoc?.url || docNeeded.url || null,
           // Status is specific to the offer request, not the document
           status: docNeeded.status,
-          // Full populated document for reference
-          document: populatedDoc || null,
+          // Full populated document for reference (strip URL if denied)
+          document: populatedDoc
+            ? docNeeded.status === 'denied'
+              ? { ...populatedDoc, url: null }
+              : populatedDoc
+            : null,
         };
       });
     }
