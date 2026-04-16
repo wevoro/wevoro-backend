@@ -31,6 +31,7 @@ const professional_info_model_1 = require("./professional-info.model");
 const waitlist_model_1 = require("./waitlist.model");
 const bunny_upload_1 = require("../../../helpers/bunny-upload");
 const unpdf_1 = require("unpdf");
+const sharp_1 = __importDefault(require("sharp"));
 const offer_model_1 = require("../offer/offer.model");
 const partner_verification_model_1 = require("../partner-verification/partner-verification.model");
 cloudinary_1.default.v2.config({
@@ -618,18 +619,67 @@ const autoFillAI = (user, file) => __awaiter(void 0, void 0, void 0, function* (
     }
     // Use unpdf for serverless-compatible PDF text extraction
     const fileBuffer = fs_1.default.readFileSync(file.path);
-    const uint8Array = new Uint8Array(fileBuffer);
-    const { text: resumeText } = yield (0, unpdf_1.extractText)(uint8Array, {
-        mergePages: true,
-    });
+    let profileImgUrl = null;
+    let pdfDoc;
+    try {
+        // Create a copy of the array buffer since pdf.js web workers can detach buffers via structuredClone
+        const uint8ArrayCopy = new Uint8Array(fileBuffer).slice();
+        pdfDoc = yield (0, unpdf_1.getDocumentProxy)(uint8ArrayCopy);
+        const imagesData = yield (0, unpdf_1.extractImages)(pdfDoc, 1);
+        // Sort by largest area first
+        const sortedImages = imagesData.sort((a, b) => b.width * b.height - a.width * a.height);
+        if (sortedImages.length > 0) {
+            const largestImg = sortedImages[0];
+            // Only process if it's reasonably sized, to avoid grabbing a tiny icon
+            if (largestImg.width >= 50 && largestImg.height >= 50) {
+                const pngBuffer = yield (0, sharp_1.default)(Buffer.from(largestImg.data.buffer, largestImg.data.byteOffset, largestImg.data.byteLength), {
+                    raw: {
+                        width: largestImg.width,
+                        height: largestImg.height,
+                        channels: largestImg.channels,
+                    },
+                })
+                    .png()
+                    .toBuffer();
+                const uploadRes = yield new Promise((resolve, reject) => {
+                    const stream = cloudinary_1.default.v2.uploader.upload_stream({ upload_preset: 'wevoro' }, (error, result) => {
+                        if (error)
+                            reject(error);
+                        else
+                            resolve(result);
+                    });
+                    stream.end(pngBuffer);
+                });
+                profileImgUrl = uploadRes.secure_url;
+            }
+        }
+    }
+    catch (imgError) {
+        console.error('Failed to extract/upload profile image from PDF:', imgError);
+    }
+    let resumeText = '';
+    try {
+        if (!pdfDoc) {
+            const uint8ArrayCopy2 = new Uint8Array(fileBuffer).slice();
+            pdfDoc = yield (0, unpdf_1.getDocumentProxy)(uint8ArrayCopy2);
+        }
+        const extractResult = yield (0, unpdf_1.extractText)(pdfDoc, {
+            mergePages: true,
+        });
+        resumeText = extractResult.text;
+    }
+    catch (textError) {
+        console.error('Failed to extract text from PDF:', textError);
+    }
     console.log('🚀 ~ autoFillAI ~ resumeText:', resumeText);
     if (!resumeText || resumeText.trim().length === 0) {
-        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Could not extract text from the PDF');
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'The uploaded file appears to be empty. Please upload a valid CV.');
     }
     // Define the expected JSON schema for OpenAI
     const systemPrompt = `You are a resume parser AI. Extract information from the provided resume text and return a clean JSON object with the following structure:
 
 {
+  "isValidResume": true or false,
   "personalInformation": {
     "firstName": "string or null",
     "lastName": "string or null",
@@ -683,7 +733,8 @@ Rules:
 3. For arrays (education, experience, certifications, skills), return an empty array [] if no items found.
 4. Ensure dates are in ISO format (YYYY-MM-DD) where possible.
 5. Extract a professional bio/summary if available, otherwise use null.
-6. Parse the full name into firstName and lastName.`;
+6. Parse the full name into firstName and lastName.
+7. If the text does not appear to be a valid resume or CV (e.g. a random paragraph), set "isValidResume" to false. Otherwise, set it to true.`;
     // Call OpenAI API
     const response = yield fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -726,6 +777,12 @@ Rules:
     }
     cleanedContent = cleanedContent.trim();
     const parsedData = JSON.parse(cleanedContent);
+    if (!parsedData.isValidResume) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, "We couldn't detect a valid CV format. Please upload a proper resume.");
+    }
+    if (profileImgUrl && parsedData.personalInformation) {
+        parsedData.personalInformation.image = profileImgUrl;
+    }
     return parsedData;
 });
 exports.UserService = {

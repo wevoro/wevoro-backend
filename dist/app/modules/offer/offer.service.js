@@ -195,11 +195,17 @@ const getOffers = (user) => __awaiter(void 0, void 0, void 0, function* () {
                     category: (populatedDoc === null || populatedDoc === void 0 ? void 0 : populatedDoc.category) || docNeeded.category,
                     privacy: (populatedDoc === null || populatedDoc === void 0 ? void 0 : populatedDoc.privacy) || docNeeded.privacy,
                     documentType: (populatedDoc === null || populatedDoc === void 0 ? void 0 : populatedDoc.documentType) || docNeeded.documentType || null,
-                    url: (populatedDoc === null || populatedDoc === void 0 ? void 0 : populatedDoc.url) || docNeeded.url || null,
+                    // Strip URL for denied documents to prevent unauthorized access
+                    url: docNeeded.status === 'denied'
+                        ? null
+                        : (populatedDoc === null || populatedDoc === void 0 ? void 0 : populatedDoc.url) || docNeeded.url || null,
                     // Status is specific to the offer request, not the document
                     status: docNeeded.status,
-                    // Full populated document for reference
-                    document: populatedDoc || null,
+                    // Full populated document for reference (strip URL if denied)
+                    document: populatedDoc
+                        ? docNeeded.status === 'denied'
+                            ? Object.assign(Object.assign({}, populatedDoc), { url: null }) : populatedDoc
+                        : null,
                 };
             });
         }
