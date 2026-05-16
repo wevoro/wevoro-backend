@@ -80,8 +80,21 @@ const deleteDocument = async (
   return result;
 };
 
+const reviewDocument = async (
+  documentId: string,
+  reviewStatus: 'approved' | 'rejected'
+): Promise<any> => {
+  const result = await Documents.findByIdAndUpdate(
+    documentId,
+    { reviewStatus, reviewedAt: reviewStatus === 'approved' ? new Date() : undefined },
+    { new: true }
+  );
+  return result;
+};
+
 export const DocumentService = {
   uploadDocument,
   getUserDocuments,
   deleteDocument,
+  reviewDocument,
 };

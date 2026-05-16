@@ -9,6 +9,7 @@ import mongoose from 'mongoose';
 import config from '../../../config';
 import { ENUM_USER_ROLE } from '../../../enums/user';
 import { calculatePartnerPercentage } from '../../../helpers/calculatePartnerPercentage';
+import { calculateProCompletion } from '../../../helpers/calculateProCompletion';
 import { sendEmail } from '../auth/sendMail';
 import { Documents } from '../document/documents.model';
 import { Notification } from './notification.model';
@@ -319,14 +320,15 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
 
   if (role === ENUM_USER_ROLE.PRO) {
     const professionalInfo = await ProfessionalInfo.findOne({ user: _id });
+    const driverLicense = await Documents.findOne({ user: _id, documentType: 'driver_license' });
+    const tbTest = await Documents.findOne({ user: _id, documentType: 'tb_tests' });
 
-    const totalSteps = 3;
-    const completedSteps = [
-      Object.keys(personalInfo || {}).length > 0,
-      Object.keys(professionalInfo || {}).length > 0,
-    ].filter(Boolean).length;
-
-    completionPercentage = Math.floor((completedSteps / totalSteps) * 100);
+    completionPercentage = calculateProCompletion(
+      personalInfo,
+      professionalInfo,
+      driverLicense,
+      tbTest
+    );
   }
   if (role === ENUM_USER_ROLE.PARTNER) {
     const fields = [

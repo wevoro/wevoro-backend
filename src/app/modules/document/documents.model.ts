@@ -27,6 +27,14 @@ const DocumentsSchema = new Schema<any>(
     consent: {
       type: Boolean,
     },
+    reviewStatus: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending',
+    },
+    reviewedAt: {
+      type: Date,
+    },
   },
   {
     timestamps: true,

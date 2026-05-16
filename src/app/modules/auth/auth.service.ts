@@ -5,6 +5,7 @@ import config from '../../../config';
 import { ENUM_USER_ROLE } from '../../../enums/user';
 import ApiError from '../../../errors/ApiError';
 import { calculatePartnerPercentage } from '../../../helpers/calculatePartnerPercentage';
+import { calculateProCompletion } from '../../../helpers/calculateProCompletion';
 import { jwtHelpers } from '../../../helpers/jwtHelpers';
 import { Documents } from '../document/documents.model';
 import { PersonalInfo } from '../user/personal-info.model';
@@ -83,19 +84,15 @@ const loginUser = async (payload: ILoginUser): Promise<ILoginUserResponse> => {
   const personalInfo = await PersonalInfo.findOne({ user: _id });
   if (role === ENUM_USER_ROLE.PRO) {
     const professionalInfo = await ProfessionalInfo.findOne({ user: _id });
-    const documents = await Documents.findOne({ user: _id });
+    const driverLicense = await Documents.findOne({ user: _id, documentType: 'driver_license' });
+    const tbTest = await Documents.findOne({ user: _id, documentType: 'tb_tests' });
 
-    const totalSteps = 3;
-    const completedSteps = [
-      Object.keys(personalInfo || {}).length > 0,
-      Object.keys(professionalInfo || {}).length > 0,
-      Object.keys(documents || {}).length > 0,
-    ].filter(Boolean).length;
-
-    const completionPercentage = Math.floor(
-      (completedSteps / totalSteps) * 100
+    returnData.completionPercentage = calculateProCompletion(
+      personalInfo,
+      professionalInfo,
+      driverLicense,
+      tbTest
     );
-    returnData.completionPercentage = completionPercentage;
   }
 
   if (role === ENUM_USER_ROLE.PARTNER) {
@@ -183,17 +180,15 @@ const loginWithGoogle = async (
   const personalInfo = await PersonalInfo.findOne({ user: _id });
   if (role === ENUM_USER_ROLE.PRO) {
     const professionalInfo = await ProfessionalInfo.findOne({ user: _id });
-    const documents = await Documents.findOne({ user: _id });
+    const driverLicense = await Documents.findOne({ user: _id, documentType: 'driver_license' });
+    const tbTest = await Documents.findOne({ user: _id, documentType: 'tb_tests' });
 
-    const totalSteps = 3;
-    const completedSteps = [
-      Object.keys(personalInfo || {}).length > 0,
-      Object.keys(professionalInfo || {}).length > 0,
-      Object.keys(documents || {}).length > 0,
-    ].filter(Boolean).length;
-
-    const completionPercentage = (completedSteps / totalSteps) * 100;
-    returnData.completionPercentage = completionPercentage;
+    returnData.completionPercentage = calculateProCompletion(
+      personalInfo,
+      professionalInfo,
+      driverLicense,
+      tbTest
+    );
   }
 
   if (role === ENUM_USER_ROLE.PARTNER) {

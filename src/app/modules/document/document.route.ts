@@ -31,4 +31,11 @@ router.delete(
   DocumentController.deleteDocument
 );
 
+// Admin: review (approve/reject) a document
+router.patch(
+  '/:documentId/review',
+  auth(ENUM_USER_ROLE.ADMIN),
+  DocumentController.reviewDocument
+);
+
 export const DocumentRoutes = router;

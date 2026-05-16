@@ -63,8 +63,23 @@ const deleteDocument = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const reviewDocument = catchAsync(async (req: Request, res: Response) => {
+  const { documentId } = req.params;
+  const { reviewStatus } = req.body;
+
+  const result = await DocumentService.reviewDocument(documentId, reviewStatus);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: `Document ${reviewStatus} successfully!`,
+    data: result,
+  });
+});
+
 export const DocumentController = {
   uploadDocument,
   getUserDocuments,
   deleteDocument,
+  reviewDocument,
 };
