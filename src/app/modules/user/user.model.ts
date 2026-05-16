@@ -54,6 +54,11 @@ const UserSchema = new Schema<IUser, UserModel>(
       type: Date,
       default: null,
     },
+    backgroundCheckStatus: {
+      type: String,
+      enum: ['verified', 'failed', 'not_verified'],
+      default: 'not_verified',
+    },
   },
   {
     timestamps: true,
