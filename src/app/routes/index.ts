@@ -6,6 +6,7 @@ import { UserRoutes } from '../modules/user/user.route';
 import { DocumentRoutes } from '../modules/document/document.route';
 import { OfferRoutes } from '../modules/offer/offer.route';
 import { PartnerVerificationRoutes } from '../modules/partner-verification/partner-verification.route';
+import { ShiftRoutes } from '../modules/shift/shift.route';
 
 const router = express.Router();
 
@@ -33,6 +34,10 @@ const moduleRoutes = [
   {
     path: '/feedback',
     route: FeedbackRoutes,
+  },
+  {
+    path: '/shift',
+    route: ShiftRoutes,
   },
 ];
 
