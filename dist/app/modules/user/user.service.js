@@ -22,6 +22,7 @@ const mongoose_1 = __importDefault(require("mongoose"));
 const config_1 = __importDefault(require("../../../config"));
 const user_1 = require("../../../enums/user");
 const calculatePartnerPercentage_1 = require("../../../helpers/calculatePartnerPercentage");
+const calculateProCompletion_1 = require("../../../helpers/calculateProCompletion");
 const sendMail_1 = require("../auth/sendMail");
 const documents_model_1 = require("../document/documents.model");
 const notification_model_1 = require("./notification.model");
@@ -34,6 +35,7 @@ const unpdf_1 = require("unpdf");
 const sharp_1 = __importDefault(require("sharp"));
 const offer_model_1 = require("../offer/offer.model");
 const partner_verification_model_1 = require("../partner-verification/partner-verification.model");
+const crypto_1 = __importDefault(require("crypto"));
 cloudinary_1.default.v2.config({
     cloud_name: config_1.default.cloudinary.cloud_name,
     api_key: config_1.default.cloudinary.api_key,
@@ -65,6 +67,10 @@ const createUser = (user) => __awaiter(void 0, void 0, void 0, function* () {
     if (user.role === user_1.ENUM_USER_ROLE.PARTNER) {
         delete user.professionalInformation;
         delete user.documents;
+    }
+    // Generate shareId for pro users
+    if (user.role === user_1.ENUM_USER_ROLE.PRO) {
+        user.shareId = crypto_1.default.randomUUID();
     }
     const newUser = yield user_model_1.User.create(user);
     if (!newUser) {
@@ -245,12 +251,9 @@ const getUserProfile = (user) => __awaiter(void 0, void 0, void 0, function* () 
     let jobConversionPData = 0;
     if (role === user_1.ENUM_USER_ROLE.PRO) {
         const professionalInfo = yield professional_info_model_1.ProfessionalInfo.findOne({ user: _id });
-        const totalSteps = 3;
-        const completedSteps = [
-            Object.keys(personalInfo || {}).length > 0,
-            Object.keys(professionalInfo || {}).length > 0,
-        ].filter(Boolean).length;
-        completionPercentage = Math.floor((completedSteps / totalSteps) * 100);
+        const driverLicense = yield documents_model_1.Documents.findOne({ user: _id, documentType: 'driver_license' });
+        const tbTest = yield documents_model_1.Documents.findOne({ user: _id, documentType: 'tb_tests' });
+        completionPercentage = (0, calculateProCompletion_1.calculateProCompletion)(personalInfo, professionalInfo, driverLicense, tbTest);
     }
     if (role === user_1.ENUM_USER_ROLE.PARTNER) {
         const fields = [
@@ -339,6 +342,7 @@ const getUserProfile = (user) => __awaiter(void 0, void 0, void 0, function* () 
                     },
                 },
                 sharableLink: sharableLink,
+                shareId: '$shareId',
                 offersSent: {
                     $cond: {
                         if: { $eq: [role, user_1.ENUM_USER_ROLE.PARTNER] },
@@ -413,12 +417,45 @@ const getUserById = (id) => __awaiter(void 0, void 0, void 0, function* () {
                     },
                 },
                 sharableLink: sharableLink,
+                shareId: '$shareId',
+                backgroundCheckStatus: 1,
                 // offersSent: offersSentData,
                 // jobConversionPercentage: jobConversionPData,
             },
         },
     ]);
     return result.length > 0 ? result[0] : null;
+});
+const getUserByShareId = (shareId) => __awaiter(void 0, void 0, void 0, function* () {
+    if (!shareId) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Share ID is required');
+    }
+    const user = yield user_model_1.User.findOne({ shareId });
+    if (!user) {
+        throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'Profile not found');
+    }
+    const personalInfo = yield personal_info_model_1.PersonalInfo.findOne({ user: user._id });
+    const documents = yield documents_model_1.Documents.find({ user: user._id });
+    const verifiedCount = documents.filter((d) => d.reviewStatus === 'approved').length;
+    return {
+        _id: user._id,
+        role: user.role,
+        status: user.status,
+        shareId: user.shareId,
+        personalInfo: personalInfo ? {
+            firstName: personalInfo.firstName,
+            lastName: personalInfo.lastName ? personalInfo.lastName.charAt(0) + '.' : '',
+            image: personalInfo.image,
+            address: personalInfo.address ? {
+                city: personalInfo.address.city,
+                state: personalInfo.address.state,
+            } : null,
+        } : null,
+        credentialsSummary: {
+            verified: verifiedCount,
+            total: 5,
+        },
+    };
 });
 const getUsers = () => __awaiter(void 0, void 0, void 0, function* () {
     const result = yield user_model_1.User.aggregate([
@@ -785,6 +822,21 @@ Rules:
     }
     return parsedData;
 });
+// SCRUM-66: Update GCHEXS background check self-report status
+const updateGchexsStatus = (userId, gchexsStatus, gchexsDocumentUrl, gchexsDocumentFileId) => __awaiter(void 0, void 0, void 0, function* () {
+    const updateData = {
+        gchexsStatus,
+        gchexsUpdatedAt: new Date(),
+    };
+    if (gchexsStatus === 'yes' && gchexsDocumentUrl) {
+        updateData.gchexsDocumentUrl = gchexsDocumentUrl;
+        updateData.gchexsDocumentFileId = gchexsDocumentFileId;
+    }
+    // If changing to 'no', don't delete the document (retained per SCRUM-66 spec)
+    // Just update the status
+    const result = yield professional_info_model_1.ProfessionalInfo.findOneAndUpdate({ user: userId }, { $set: updateData }, { new: true, upsert: true });
+    return result;
+});
 exports.UserService = {
     createUser,
     updateUser,
@@ -805,4 +857,6 @@ exports.UserService = {
     getUsers,
     updateAllUsers,
     autoFillAI,
+    getUserByShareId,
+    updateGchexsStatus,
 };

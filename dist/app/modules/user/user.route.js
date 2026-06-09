@@ -32,4 +32,8 @@ router.delete('/notification/:id', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PAR
 router.patch('/notification/mark-as-read', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.ADMIN), user_controller_1.UserController.markAllNotificationsAsRead);
 router.delete('/delete-account', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.ADMIN), user_controller_1.UserController.deleteAccount);
 router.post('/auto-fill', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.ADMIN), upload.single('file'), user_controller_1.UserController.autoFillAI);
+// Public: Get user by share ID (for share flow preview)
+router.get('/share/:shareId', user_controller_1.UserController.getUserByShareId);
+// SCRUM-66: Update GCHEXS background check self-report
+router.patch('/gchexs', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PRO), user_controller_1.UserController.updateGchexsStatus);
 exports.UserRoutes = router;

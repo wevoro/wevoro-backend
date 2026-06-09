@@ -193,6 +193,36 @@ const autoFillAI = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, voi
         data: result,
     });
 }));
+const getUserByShareId = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const result = yield user_service_1.UserService.getUserByShareId(req.params.shareId);
+    (0, sendResponse_1.default)(res, {
+        statusCode: http_status_1.default.OK,
+        success: true,
+        message: 'User profile retrieved successfully!',
+        data: result,
+    });
+}));
+// SCRUM-66: Update GCHEXS background check self-report
+const updateGchexsStatus = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a._id;
+    const { gchexsStatus, gchexsDocumentUrl, gchexsDocumentFileId } = req.body;
+    if (!['yes', 'no'].includes(gchexsStatus)) {
+        return (0, sendResponse_1.default)(res, {
+            statusCode: http_status_1.default.BAD_REQUEST,
+            success: false,
+            message: 'GCHEXS status must be "yes" or "no"',
+            data: null,
+        });
+    }
+    const result = yield user_service_1.UserService.updateGchexsStatus(userId, gchexsStatus, gchexsDocumentUrl, gchexsDocumentFileId);
+    (0, sendResponse_1.default)(res, {
+        statusCode: http_status_1.default.OK,
+        success: true,
+        message: 'GCHEXS status updated successfully!',
+        data: result,
+    });
+}));
 exports.UserController = {
     createUser,
     updateUser,
@@ -212,4 +242,6 @@ exports.UserController = {
     getUsers,
     updateAllUsers,
     autoFillAI,
+    getUserByShareId,
+    updateGchexsStatus,
 };

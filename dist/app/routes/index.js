@@ -10,6 +10,7 @@ const user_route_1 = require("../modules/user/user.route");
 const document_route_1 = require("../modules/document/document.route");
 const offer_route_1 = require("../modules/offer/offer.route");
 const partner_verification_route_1 = require("../modules/partner-verification/partner-verification.route");
+const shift_route_1 = require("../modules/shift/shift.route");
 const router = express_1.default.Router();
 const moduleRoutes = [
     {
@@ -35,6 +36,10 @@ const moduleRoutes = [
     {
         path: '/feedback',
         route: feedback_route_1.FeedbackRoutes,
+    },
+    {
+        path: '/shift',
+        route: shift_route_1.ShiftRoutes,
     },
 ];
 moduleRoutes.forEach(route => router.use(route.path, route.route));

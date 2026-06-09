@@ -28,6 +28,19 @@ const DocumentsSchema = new mongoose_1.Schema({
     consent: {
         type: Boolean,
     },
+    reviewStatus: {
+        type: String,
+        enum: ['pending', 'approved', 'rejected'],
+        default: 'pending',
+    },
+    reviewedAt: {
+        type: Date,
+    },
+    credentialIdNumber: { type: String },
+    credentialIssueDate: { type: Date },
+    credentialExpirationDate: { type: Date },
+    issuingOrganization: { type: String },
+    rejectionReason: { type: String },
 }, {
     timestamps: true,
 });

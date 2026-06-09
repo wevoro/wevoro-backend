@@ -64,6 +64,20 @@ const UserSchema = new mongoose_1.Schema({
         type: Date,
         default: null,
     },
+    backgroundCheckStatus: {
+        type: String,
+        enum: ['verified', 'failed', 'not_verified'],
+        default: 'not_verified',
+    },
+    shareId: {
+        type: String,
+        unique: true,
+        sparse: true,
+    },
+    sourceCaregiverId: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'User',
+    },
 }, {
     timestamps: true,
 });
