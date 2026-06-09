@@ -5,6 +5,7 @@ const createToken = (
   secret: Secret,
   expireTime: string
 ): string => {
+  // @ts-ignore - jwt version type mismatch
   return jwt.sign(payload, secret, {
     expiresIn: expireTime,
   });
@@ -15,6 +16,7 @@ const createResetToken = (
   secret: Secret,
   expireTime: string
 ): string => {
+  // @ts-ignore - jwt version type mismatch
   return jwt.sign(payload, secret, {
     algorithm: 'HS256',
     expiresIn: expireTime,

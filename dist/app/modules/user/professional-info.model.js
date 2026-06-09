@@ -38,6 +38,20 @@ const ProfessionalInfoSchema = new mongoose_1.Schema({
         },
     ],
     skills: [String],
+    // SCRUM-60: Caregiver role (drives [Role] Certificate label across the platform)
+    role: {
+        type: String,
+        enum: ['CNA', 'PCA'],
+    },
+    // SCRUM-66: GCHEXS Background Check Self-Report
+    gchexsStatus: {
+        type: String,
+        enum: ['yes', 'no', 'not_set'],
+        default: 'not_set',
+    },
+    gchexsDocumentUrl: { type: String },
+    gchexsDocumentFileId: { type: String },
+    gchexsUpdatedAt: { type: Date },
 }, {
     timestamps: true,
 });

@@ -19,6 +19,7 @@ const config_1 = __importDefault(require("../../../config"));
 const user_1 = require("../../../enums/user");
 const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
 const calculatePartnerPercentage_1 = require("../../../helpers/calculatePartnerPercentage");
+const calculateProCompletion_1 = require("../../../helpers/calculateProCompletion");
 const jwtHelpers_1 = require("../../../helpers/jwtHelpers");
 const documents_model_1 = require("../document/documents.model");
 const personal_info_model_1 = require("../user/personal-info.model");
@@ -59,15 +60,9 @@ const loginUser = (payload) => __awaiter(void 0, void 0, void 0, function* () {
     const personalInfo = yield personal_info_model_1.PersonalInfo.findOne({ user: _id });
     if (role === user_1.ENUM_USER_ROLE.PRO) {
         const professionalInfo = yield professional_info_model_1.ProfessionalInfo.findOne({ user: _id });
-        const documents = yield documents_model_1.Documents.findOne({ user: _id });
-        const totalSteps = 3;
-        const completedSteps = [
-            Object.keys(personalInfo || {}).length > 0,
-            Object.keys(professionalInfo || {}).length > 0,
-            Object.keys(documents || {}).length > 0,
-        ].filter(Boolean).length;
-        const completionPercentage = Math.floor((completedSteps / totalSteps) * 100);
-        returnData.completionPercentage = completionPercentage;
+        const driverLicense = yield documents_model_1.Documents.findOne({ user: _id, documentType: 'driver_license' });
+        const tbTest = yield documents_model_1.Documents.findOne({ user: _id, documentType: 'tb_tests' });
+        returnData.completionPercentage = (0, calculateProCompletion_1.calculateProCompletion)(personalInfo, professionalInfo, driverLicense, tbTest);
     }
     if (role === user_1.ENUM_USER_ROLE.PARTNER) {
         const fields = [
@@ -116,15 +111,9 @@ const loginWithGoogle = (payload) => __awaiter(void 0, void 0, void 0, function*
     const personalInfo = yield personal_info_model_1.PersonalInfo.findOne({ user: _id });
     if (role === user_1.ENUM_USER_ROLE.PRO) {
         const professionalInfo = yield professional_info_model_1.ProfessionalInfo.findOne({ user: _id });
-        const documents = yield documents_model_1.Documents.findOne({ user: _id });
-        const totalSteps = 3;
-        const completedSteps = [
-            Object.keys(personalInfo || {}).length > 0,
-            Object.keys(professionalInfo || {}).length > 0,
-            Object.keys(documents || {}).length > 0,
-        ].filter(Boolean).length;
-        const completionPercentage = (completedSteps / totalSteps) * 100;
-        returnData.completionPercentage = completionPercentage;
+        const driverLicense = yield documents_model_1.Documents.findOne({ user: _id, documentType: 'driver_license' });
+        const tbTest = yield documents_model_1.Documents.findOne({ user: _id, documentType: 'tb_tests' });
+        returnData.completionPercentage = (0, calculateProCompletion_1.calculateProCompletion)(personalInfo, professionalInfo, driverLicense, tbTest);
     }
     if (role === user_1.ENUM_USER_ROLE.PARTNER) {
         const fields = [
