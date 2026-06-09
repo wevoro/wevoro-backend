@@ -522,7 +522,15 @@ const getUserByShareId = async (shareId: string): Promise<any> => {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Share ID is required');
   }
 
-  const user = await User.findOne({ shareId });
+  // Try shareId first, then fall back to _id for existing users without a shareId
+  let user = await User.findOne({ shareId });
+  if (!user) {
+    // Check if it's a valid MongoDB ObjectId and try _id lookup
+    const mongoose = require('mongoose');
+    if (mongoose.Types.ObjectId.isValid(shareId)) {
+      user = await User.findById(shareId);
+    }
+  }
   if (!user) {
     throw new ApiError(httpStatus.NOT_FOUND, 'Profile not found');
   }
