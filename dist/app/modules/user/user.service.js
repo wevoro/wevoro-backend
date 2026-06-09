@@ -430,7 +430,15 @@ const getUserByShareId = (shareId) => __awaiter(void 0, void 0, void 0, function
     if (!shareId) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Share ID is required');
     }
-    const user = yield user_model_1.User.findOne({ shareId });
+    // Try shareId first, then fall back to _id for existing users without a shareId
+    let user = yield user_model_1.User.findOne({ shareId });
+    if (!user) {
+        // Check if it's a valid MongoDB ObjectId and try _id lookup
+        const mongoose = require('mongoose');
+        if (mongoose.Types.ObjectId.isValid(shareId)) {
+            user = yield user_model_1.User.findById(shareId);
+        }
+    }
     if (!user) {
         throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'Profile not found');
     }
