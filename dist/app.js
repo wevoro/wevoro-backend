@@ -13,8 +13,16 @@ const routes_1 = __importDefault(require("./app/routes"));
 const compression_1 = __importDefault(require("compression"));
 const app = (0, express_1.default)();
 app.use((0, compression_1.default)());
-app.use((0, cors_1.default)());
-app.use((0, cors_1.default)({ origin: 'http://localhost:3000', credentials: true }));
+app.use((0, cors_1.default)({
+    origin: [
+        'http://localhost:3000',
+        'http://localhost:3003',
+        'https://wevoro-frontend.vercel.app',
+        'https://wevoro-frontend-riad009s-projects.vercel.app',
+        process.env.FRONTEND_URL_PROD || '',
+    ].filter(Boolean),
+    credentials: true,
+}));
 app.use((0, cookie_parser_1.default)());
 //parser
 app.use(express_1.default.json({ limit: '50mb' }));

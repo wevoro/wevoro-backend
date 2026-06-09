@@ -11,8 +11,16 @@ import compression from 'compression';
 const app: Application = express();
 
 app.use(compression());
-app.use(cors());
-app.use(cors({ origin: 'http://localhost:3000', credentials: true }));
+app.use(cors({
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:3003',
+    'https://wevoro-frontend.vercel.app',
+    'https://wevoro-frontend-riad009s-projects.vercel.app',
+    process.env.FRONTEND_URL_PROD || '',
+  ].filter(Boolean),
+  credentials: true,
+}));
 app.use(cookieParser());
 
 //parser
