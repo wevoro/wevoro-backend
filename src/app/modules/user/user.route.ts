@@ -104,4 +104,14 @@ router.post(
   UserController.autoFillAI
 );
 
+// Public: Get user by share ID (for share flow preview)
+router.get('/share/:shareId', UserController.getUserByShareId);
+
+// SCRUM-66: Update GCHEXS background check self-report
+router.patch(
+  '/gchexs',
+  auth(ENUM_USER_ROLE.PRO),
+  UserController.updateGchexsStatus
+);
+
 export const UserRoutes = router;

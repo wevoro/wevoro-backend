@@ -15,6 +15,9 @@ export type IUser = {
   coverImage: string;
   otpExpiry: Date;
   lastLoginAt: Date;
+  backgroundCheckStatus: string;
+  shareId: string;
+  sourceCaregiverId: import('mongoose').Types.ObjectId | string;
   canResetPassword: boolean;
   personalInformation: {
     bio: string;

@@ -23,6 +23,7 @@ import { extractText, extractImages, getDocumentProxy } from 'unpdf';
 import sharp from 'sharp';
 import { Offer } from '../offer/offer.model';
 import { PartnerVerification } from '../partner-verification/partner-verification.model';
+import crypto from 'crypto';
 cloudinary.v2.config({
   cloud_name: config.cloudinary.cloud_name,
   api_key: config.cloudinary.api_key,
@@ -66,6 +67,11 @@ const createUser = async (user: Partial<IUser>): Promise<IUser | null> => {
   if (user.role === ENUM_USER_ROLE.PARTNER) {
     delete user.professionalInformation;
     delete user.documents;
+  }
+
+  // Generate shareId for pro users
+  if (user.role === ENUM_USER_ROLE.PRO) {
+    (user as any).shareId = crypto.randomUUID();
   }
 
   const newUser = await User.create(user);
@@ -420,6 +426,7 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
           },
         },
         sharableLink: sharableLink,
+        shareId: '$shareId',
         offersSent: {
           $cond: {
             if: { $eq: [role, ENUM_USER_ROLE.PARTNER] },
@@ -499,6 +506,8 @@ const getUserById = async (id: string): Promise<IUser | null> => {
           },
         },
         sharableLink: sharableLink,
+        shareId: '$shareId',
+        backgroundCheckStatus: 1,
         // offersSent: offersSentData,
         // jobConversionPercentage: jobConversionPData,
       },
@@ -507,6 +516,42 @@ const getUserById = async (id: string): Promise<IUser | null> => {
 
   return result.length > 0 ? result[0] : null;
 };
+
+const getUserByShareId = async (shareId: string): Promise<any> => {
+  if (!shareId) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Share ID is required');
+  }
+
+  const user = await User.findOne({ shareId });
+  if (!user) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'Profile not found');
+  }
+
+  const personalInfo = await PersonalInfo.findOne({ user: user._id });
+  const documents = await Documents.find({ user: user._id });
+  const verifiedCount = documents.filter((d: any) => d.reviewStatus === 'approved').length;
+
+  return {
+    _id: user._id,
+    role: user.role,
+    status: user.status,
+    shareId: user.shareId,
+    personalInfo: personalInfo ? {
+      firstName: personalInfo.firstName,
+      lastName: personalInfo.lastName ? personalInfo.lastName.charAt(0) + '.' : '',
+      image: personalInfo.image,
+      address: personalInfo.address ? {
+        city: personalInfo.address.city,
+        state: personalInfo.address.state,
+      } : null,
+    } : null,
+    credentialsSummary: {
+      verified: verifiedCount,
+      total: 5,
+    },
+  };
+};
+
 const getUsers = async (): Promise<IUser[]> => {
   const result = await User.aggregate([
     {
@@ -943,6 +988,35 @@ Rules:
   return parsedData;
 };
 
+// SCRUM-66: Update GCHEXS background check self-report status
+const updateGchexsStatus = async (
+  userId: string,
+  gchexsStatus: 'yes' | 'no',
+  gchexsDocumentUrl?: string,
+  gchexsDocumentFileId?: string,
+): Promise<any> => {
+  const updateData: Record<string, any> = {
+    gchexsStatus,
+    gchexsUpdatedAt: new Date(),
+  };
+
+  if (gchexsStatus === 'yes' && gchexsDocumentUrl) {
+    updateData.gchexsDocumentUrl = gchexsDocumentUrl;
+    updateData.gchexsDocumentFileId = gchexsDocumentFileId;
+  }
+
+  // If changing to 'no', don't delete the document (retained per SCRUM-66 spec)
+  // Just update the status
+
+  const result = await ProfessionalInfo.findOneAndUpdate(
+    { user: userId },
+    { $set: updateData },
+    { new: true, upsert: true }
+  );
+
+  return result;
+};
+
 export const UserService = {
   createUser,
   updateUser,
@@ -963,4 +1037,6 @@ export const UserService = {
   getUsers,
   updateAllUsers,
   autoFillAI,
+  getUserByShareId,
+  updateGchexsStatus,
 };

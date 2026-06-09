@@ -268,6 +268,49 @@ const autoFillAI: RequestHandler = catchAsync(
   }
 );
 
+const getUserByShareId: RequestHandler = catchAsync(
+  async (req: Request, res: Response) => {
+    const result = await UserService.getUserByShareId(req.params.shareId);
+
+    sendResponse<IUser>(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: 'User profile retrieved successfully!',
+      data: result,
+    });
+  }
+);
+// SCRUM-66: Update GCHEXS background check self-report
+const updateGchexsStatus: RequestHandler = catchAsync(
+  async (req: Request, res: Response) => {
+    const userId = (req as any).user?._id;
+    const { gchexsStatus, gchexsDocumentUrl, gchexsDocumentFileId } = req.body;
+
+    if (!['yes', 'no'].includes(gchexsStatus)) {
+      return sendResponse(res, {
+        statusCode: httpStatus.BAD_REQUEST,
+        success: false,
+        message: 'GCHEXS status must be "yes" or "no"',
+        data: null,
+      });
+    }
+
+    const result = await UserService.updateGchexsStatus(
+      userId,
+      gchexsStatus,
+      gchexsDocumentUrl,
+      gchexsDocumentFileId,
+    );
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: 'GCHEXS status updated successfully!',
+      data: result,
+    });
+  }
+);
+
 export const UserController = {
   createUser,
   updateUser,
@@ -289,4 +332,6 @@ export const UserController = {
   getUsers,
   updateAllUsers,
   autoFillAI,
+  getUserByShareId,
+  updateGchexsStatus,
 };

@@ -59,6 +59,15 @@ const UserSchema = new Schema<IUser, UserModel>(
       enum: ['verified', 'failed', 'not_verified'],
       default: 'not_verified',
     },
+    shareId: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+    sourceCaregiverId: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
   },
   {
     timestamps: true,
