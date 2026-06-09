@@ -37,6 +37,11 @@ const ProfessionalInfoSchema = new Schema<any>(
       },
     ],
     skills: [String],
+    // SCRUM-60: Caregiver role (drives [Role] Certificate label across the platform)
+    role: {
+      type: String,
+      enum: ['CNA', 'PCA'],
+    },
     // SCRUM-66: GCHEXS Background Check Self-Report
     gchexsStatus: {
       type: String,
