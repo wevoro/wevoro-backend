@@ -135,8 +135,15 @@ const reviewDocument = async (
 
   // SCRUM-65: Fire rejection notification in real-time
   if (reviewStatus === 'rejected' && result) {
+    // Resolve role-driven label for the certificate row
+    let roleLabel = 'CNA Certificate';
+    try {
+      const { ProfessionalInfo } = await import('../user/professional-info.model');
+      const profInfo: any = await ProfessionalInfo.findOne({ user: result.user }).lean();
+      if (profInfo?.role === 'PCA') roleLabel = 'PCA Certificate';
+    } catch {}
     const CREDENTIAL_LABELS: Record<string, string> = {
-      certifications: 'CNA Certification',
+      certifications: roleLabel,
       driver_license: "Driver's License",
       auto_insurance: 'Auto Insurance',
       cpr_test: 'CPR Test',
@@ -159,8 +166,13 @@ const reviewDocument = async (
 };
 
 const getCredentialStatus = async (userId: string): Promise<any> => {
+  // SCRUM-60: [Role] Certificate label is derived from professionalInfo.role at view time.
+  const { ProfessionalInfo } = await import('../user/professional-info.model');
+  const profInfo: any = await ProfessionalInfo.findOne({ user: userId }).lean();
+  const role: 'CNA' | 'PCA' = profInfo?.role === 'PCA' ? 'PCA' : 'CNA';
+
   const REQUIRED_CREDENTIALS = [
-    { key: 'certifications', label: 'CNA Certification', category: 'non_medical' },
+    { key: 'certifications', label: `${role} Certificate`, category: 'non_medical' },
     { key: 'driver_license', label: "Driver's License", category: 'non_medical' },
     { key: 'auto_insurance', label: 'Auto Insurance', category: 'non_medical' },
     { key: 'cpr_test', label: 'CPR Test', category: 'medical' },
