@@ -38,4 +38,59 @@ router.patch(
   DocumentController.reviewDocument
 );
 
+// Get credential status for a user (public for agency view)
+router.get(
+  '/credentials/:userId',
+  DocumentController.getCredentialStatus
+);
+
+// Remove a credential (pro only)
+router.delete(
+  '/:documentId/remove-credential',
+  auth(ENUM_USER_ROLE.PRO),
+  DocumentController.removeCredential
+);
+
+// SCRUM-67: Download a single document (partner auth)
+router.get(
+  '/download/:documentId',
+  auth(ENUM_USER_ROLE.PARTNER),
+  DocumentController.downloadDocument
+);
+
+// SCRUM-67: Get bulk download package (partner auth)
+router.get(
+  '/download-package/:caregiverUserId',
+  auth(ENUM_USER_ROLE.PARTNER),
+  DocumentController.getDownloadPackage
+);
+
+// SCRUM-67: Request private document access (partner auth)
+router.post(
+  '/request-private-access/:caregiverUserId',
+  auth(ENUM_USER_ROLE.PARTNER),
+  DocumentController.requestPrivateAccess
+);
+
+// SCRUM-67: Grant or revoke private access (pro auth)
+router.patch(
+  '/private-access/:accessId',
+  auth(ENUM_USER_ROLE.PRO),
+  DocumentController.updatePrivateAccess
+);
+
+// SCRUM-67: Get access requests for caregiver (pro auth)
+router.get(
+  '/access-requests',
+  auth(ENUM_USER_ROLE.PRO),
+  DocumentController.getAccessRequests
+);
+
+// SCRUM-67: Get download audit log (admin auth)
+router.get(
+  '/download-audit/:caregiverUserId',
+  auth(ENUM_USER_ROLE.ADMIN),
+  DocumentController.getDownloadAuditLog
+);
+
 export const DocumentRoutes = router;

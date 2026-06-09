@@ -35,6 +35,11 @@ const DocumentsSchema = new Schema<any>(
     reviewedAt: {
       type: Date,
     },
+    credentialIdNumber: { type: String },
+    credentialIssueDate: { type: Date },
+    credentialExpirationDate: { type: Date },
+    issuingOrganization: { type: String },
+    rejectionReason: { type: String },
   },
   {
     timestamps: true,

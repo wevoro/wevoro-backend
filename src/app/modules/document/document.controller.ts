@@ -3,6 +3,7 @@ import catchAsync from '../../../shared/catchAsync';
 import sendResponse from '../../../shared/sendResponse';
 import httpStatus from 'http-status';
 import { DocumentService } from './document.service';
+import { DownloadService } from './download.service';
 
 const uploadDocument = catchAsync(async (req: Request, res: Response) => {
   const file = req.file;
@@ -65,9 +66,16 @@ const deleteDocument = catchAsync(async (req: Request, res: Response) => {
 
 const reviewDocument = catchAsync(async (req: Request, res: Response) => {
   const { documentId } = req.params;
-  const { reviewStatus } = req.body;
+  const { reviewStatus, credentialIdNumber, credentialIssueDate, credentialExpirationDate, issuingOrganization, rejectionReason } = req.body;
 
-  const result = await DocumentService.reviewDocument(documentId, reviewStatus);
+  const result = await DocumentService.reviewDocument(documentId, {
+    reviewStatus,
+    credentialIdNumber,
+    credentialIssueDate,
+    credentialExpirationDate,
+    issuingOrganization,
+    rejectionReason,
+  });
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -77,9 +85,130 @@ const reviewDocument = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const getCredentialStatus = catchAsync(async (req: Request, res: Response) => {
+  const { userId } = req.params;
+  const result = await DocumentService.getCredentialStatus(userId);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Credential status retrieved successfully!',
+    data: result,
+  });
+});
+
+const removeCredential = catchAsync(async (req: Request, res: Response) => {
+  const { documentId } = req.params;
+  const result = await DocumentService.removeCredential(documentId);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Credential removed successfully!',
+    data: result,
+  });
+});
+
+// SCRUM-67: Download a single document
+const downloadDocument = catchAsync(async (req: Request, res: Response) => {
+  const { documentId } = req.params;
+  const agencyId = req.user?._id;
+
+  const result = await DownloadService.downloadDocument(documentId, agencyId as string);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Document download URL retrieved!',
+    data: result,
+  });
+});
+
+// SCRUM-67: Get bulk download package info
+const getDownloadPackage = catchAsync(async (req: Request, res: Response) => {
+  const { caregiverUserId } = req.params;
+  const agencyId = req.user?._id;
+
+  const result = await DownloadService.getDownloadPackage(caregiverUserId, agencyId as string);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Download package retrieved!',
+    data: result,
+  });
+});
+
+// SCRUM-67: Request private document access
+const requestPrivateAccess = catchAsync(async (req: Request, res: Response) => {
+  const { caregiverUserId } = req.params;
+  const agencyId = req.user?._id;
+
+  const result = await DownloadService.requestPrivateAccess(agencyId as string, caregiverUserId);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Private access requested!',
+    data: result,
+  });
+});
+
+// SCRUM-67: Grant or revoke private access (caregiver action)
+const updatePrivateAccess = catchAsync(async (req: Request, res: Response) => {
+  const { accessId } = req.params;
+  const { action } = req.body; // 'grant' or 'revoke'
+  const caregiverId = req.user?._id;
+
+  const result = await DownloadService.updatePrivateAccess(accessId, caregiverId as string, action);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: `Private access ${action}ed successfully!`,
+    data: result,
+  });
+});
+
+// SCRUM-67: Get access requests for a caregiver
+const getAccessRequests = catchAsync(async (req: Request, res: Response) => {
+  const caregiverId = req.user?._id;
+
+  const result = await DownloadService.getAccessRequests(caregiverId as string);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Access requests retrieved!',
+    data: result,
+  });
+});
+
+// SCRUM-67: Get download audit log (admin)
+const getDownloadAuditLog = catchAsync(async (req: Request, res: Response) => {
+  const { caregiverUserId } = req.params;
+
+  const result = await DownloadService.getDownloadAuditLog(caregiverUserId);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Download audit log retrieved!',
+    data: result,
+  });
+});
+
 export const DocumentController = {
   uploadDocument,
   getUserDocuments,
   deleteDocument,
   reviewDocument,
+  getCredentialStatus,
+  removeCredential,
+  downloadDocument,
+  getDownloadPackage,
+  requestPrivateAccess,
+  updatePrivateAccess,
+  getAccessRequests,
+  getDownloadAuditLog,
 };
