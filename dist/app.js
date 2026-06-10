@@ -1,4 +1,13 @@
 "use strict";
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -11,7 +20,31 @@ const http_status_1 = __importDefault(require("http-status"));
 const globalErrorHandler_1 = __importDefault(require("./app/middlewares/globalErrorHandler"));
 const routes_1 = __importDefault(require("./app/routes"));
 const compression_1 = __importDefault(require("compression"));
+const mongoose_1 = __importDefault(require("mongoose"));
+const dns_1 = __importDefault(require("dns"));
+// Use public DNS for SRV lookups on Vercel
+dns_1.default.setServers(['8.8.8.8', '1.1.1.1']);
 const app = (0, express_1.default)();
+// Serverless MongoDB connection middleware — ensures DB is connected before handling requests
+let isConnected = false;
+app.use((req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
+    if (!isConnected && mongoose_1.default.connection.readyState !== 1) {
+        try {
+            const dbUrl = process.env.DATABASE_URL || '';
+            yield mongoose_1.default.connect(dbUrl, {
+                serverSelectionTimeoutMS: 8000,
+                socketTimeoutMS: 10000,
+            });
+            isConnected = true;
+            console.log('🛢  Database connected (serverless)');
+        }
+        catch (err) {
+            console.error('⚠️  DB connection failed:', err);
+            return res.status(500).json({ success: false, message: 'Database connection failed' });
+        }
+    }
+    next();
+}));
 app.use((0, compression_1.default)());
 app.use((0, cors_1.default)({
     origin: [
