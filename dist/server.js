@@ -1,4 +1,5 @@
 "use strict";
+/* eslint-disable no-console */
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -12,13 +13,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-/* eslint-disable no-console */
-const dns_1 = __importDefault(require("dns"));
 const mongoose_1 = __importDefault(require("mongoose"));
 const app_1 = __importDefault(require("./app"));
 const index_1 = __importDefault(require("./config/index"));
-// Use public DNS servers for SRV lookups (works around ISP DNS refusing SRV queries)
-dns_1.default.setServers(['8.8.8.8', '1.1.1.1']);
 const credential_notification_service_1 = require("./app/modules/notification/credential-notification.service");
 process.on('uncaughtException', error => {
     console.error(error);
@@ -54,9 +51,3 @@ function bootstrap() {
     });
 }
 bootstrap();
-// process.on('SIGTERM', () => {
-//   logger.info('SIGTERM is received');
-//   if (server) {
-//     server.close();
-//   }
-// });
