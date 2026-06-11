@@ -1,12 +1,10 @@
 /* eslint-disable no-console */
-import dns from 'dns';
+
 import { Server } from 'http';
 import mongoose from 'mongoose';
 import app from './app';
 import config from './config/index';
 
-// Use public DNS servers for SRV lookups (works around ISP DNS refusing SRV queries)
-dns.setServers(['8.8.8.8', '1.1.1.1']);
 
 import { startCredentialNotificationCron } from './app/modules/notification/credential-notification.service';
 
@@ -47,9 +45,3 @@ async function bootstrap() {
 
 bootstrap();
 
-// process.on('SIGTERM', () => {
-//   logger.info('SIGTERM is received');
-//   if (server) {
-//     server.close();
-//   }
-// });

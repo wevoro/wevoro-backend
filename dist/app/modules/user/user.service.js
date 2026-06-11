@@ -443,6 +443,7 @@ const getUserByShareId = (shareId) => __awaiter(void 0, void 0, void 0, function
         throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'Profile not found');
     }
     const personalInfo = yield personal_info_model_1.PersonalInfo.findOne({ user: user._id });
+    const profInfo = yield professional_info_model_1.ProfessionalInfo.findOne({ user: user._id });
     const documents = yield documents_model_1.Documents.find({ user: user._id });
     const verifiedCount = documents.filter((d) => d.reviewStatus === 'approved').length;
     return {
@@ -458,6 +459,9 @@ const getUserByShareId = (shareId) => __awaiter(void 0, void 0, void 0, function
                 city: personalInfo.address.city,
                 state: personalInfo.address.state,
             } : null,
+        } : null,
+        professionalInfo: profInfo ? {
+            role: profInfo.role,
         } : null,
         credentialsSummary: {
             verified: verifiedCount,
