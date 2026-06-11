@@ -26,7 +26,7 @@ app.use('/api/v1', routes);
 app.use(globalErrorHandler);
 
 app.get('/', (req: Request, res: Response) => {
-  res.send('Welcome to Wevoro API');
+  res.send('Welcome to Wevoro API v2');
 });
 
 app.use((req: Request, res: Response, next: NextFunction) => {
