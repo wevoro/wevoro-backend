@@ -534,8 +534,8 @@ const getUserByShareId = async (shareId: string): Promise<any> => {
   if (!user) {
     throw new ApiError(httpStatus.NOT_FOUND, 'Profile not found');
   }
-
   const personalInfo = await PersonalInfo.findOne({ user: user._id });
+  const profInfo = await ProfessionalInfo.findOne({ user: user._id });
   const documents = await Documents.find({ user: user._id });
   const verifiedCount = documents.filter((d: any) => d.reviewStatus === 'approved').length;
 
@@ -552,6 +552,9 @@ const getUserByShareId = async (shareId: string): Promise<any> => {
         city: personalInfo.address.city,
         state: personalInfo.address.state,
       } : null,
+    } : null,
+    professionalInfo: profInfo ? {
+      role: profInfo.role,
     } : null,
     credentialsSummary: {
       verified: verifiedCount,
