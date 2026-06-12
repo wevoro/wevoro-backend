@@ -22,20 +22,58 @@ process.on('uncaughtException', error => {
     process.exit(1);
 });
 let server;
+// MongoDB connection options for stability
+const mongoOptions = {
+    serverSelectionTimeoutMS: 30000, // 30s to find a server
+    socketTimeoutMS: 45000, // 45s socket timeout
+    maxPoolSize: 10, // connection pool
+    minPoolSize: 2, // keep minimum connections alive
+    maxIdleTimeMS: 60000, // close idle connections after 60s
+    heartbeatFrequencyMS: 10000, // check server health every 10s
+    retryWrites: true,
+    retryReads: true,
+    bufferCommands: true, // buffer commands when disconnected
+};
+function connectWithRetry() {
+    return __awaiter(this, arguments, void 0, function* (maxRetries = 5, delay = 5000) {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                yield mongoose_1.default.connect(index_1.default.database_url, mongoOptions);
+                console.log(`🛢   Database is connected successfully`);
+                return;
+            }
+            catch (err) {
+                console.error(`⚠️  DB connection attempt ${attempt}/${maxRetries} failed:`, err.message);
+                if (attempt < maxRetries) {
+                    console.log(`   Retrying in ${delay / 1000}s...`);
+                    yield new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        }
+        console.error('❌  All DB connection attempts failed. Server running without DB.');
+    });
+}
 function bootstrap() {
     return __awaiter(this, void 0, void 0, function* () {
         // Start the server first so it's accessible even if DB is down
         server = app_1.default.listen(index_1.default.port, () => {
             console.log(`Application  listening on port ${index_1.default.port}`);
         });
-        try {
-            yield mongoose_1.default.connect(index_1.default.database_url);
-            console.log(`🛢   Database is connected successfully`);
-            // SCRUM-65: Start credential expiration notification cron
+        // MongoDB connection event handlers
+        mongoose_1.default.connection.on('connected', () => {
+            console.log('✅  MongoDB connected');
+        });
+        mongoose_1.default.connection.on('disconnected', () => {
+            console.warn('⚠️  MongoDB disconnected — mongoose will auto-reconnect');
+        });
+        mongoose_1.default.connection.on('error', (err) => {
+            console.error('❌  MongoDB connection error:', err.message);
+        });
+        // Connect with retry
+        yield connectWithRetry();
+        // SCRUM-65: Start credential expiration notification cron
+        if (mongoose_1.default.connection.readyState === 1) {
             (0, credential_notification_service_1.startCredentialNotificationCron)();
-        }
-        catch (err) {
-            console.error('⚠️  Failed to connect to database (server still running):', err);
         }
         process.on('unhandledRejection', error => {
             if (server) {
