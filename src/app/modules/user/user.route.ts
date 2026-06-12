@@ -53,6 +53,11 @@ router.get(
   auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.ADMIN),
   UserController.getPros
 );
+router.get(
+  '/all-pros',
+  auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.ADMIN),
+  UserController.getAllAvailablePros
+);
 router.get('/all', auth(ENUM_USER_ROLE.ADMIN), UserController.getUsers);
 
 router.patch(
