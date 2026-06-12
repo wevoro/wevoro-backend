@@ -748,6 +748,59 @@ const getPros = async (user: Partial<IUser>): Promise<IUser[]> => {
   return result.map(item => item.pro).reverse();
 };
 
+// Browse all available caregivers for partner (approved pros with full profile info)
+const getAllAvailablePros = async (): Promise<IUser[]> => {
+  const result = await User.aggregate([
+    {
+      $match: {
+        role: 'pro',
+        status: 'approved',
+      },
+    },
+    {
+      $lookup: {
+        from: 'personalinformations',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'personalInfo',
+      },
+    },
+    {
+      $lookup: {
+        from: 'professionalinformations',
+        localField: '_id',
+        foreignField: 'user',
+        as: 'professionalInfo',
+      },
+    },
+    {
+      $addFields: {
+        personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
+        professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
+        isRecentlyActive: {
+          $cond: {
+            if: { $ifNull: ['$lastLoginAt', false] },
+            then: {
+              $lt: [{ $subtract: ['$$NOW', '$lastLoginAt'] }, 7 * 24 * 60 * 60 * 1000],
+            },
+            else: false,
+          },
+        },
+      },
+    },
+    {
+      $project: {
+        password: 0,
+        isGoogleUser: 0,
+        canResetPassword: 0,
+        __v: 0,
+      },
+    },
+    { $sort: { createdAt: -1 } },
+  ]);
+  return result;
+};
+
 const createNotification = async (payload: any): Promise<any> => {
   const user = await User.findById(payload.user);
   const email = (user?.email as string) || payload.email;
@@ -1050,4 +1103,5 @@ export const UserService = {
   autoFillAI,
   getUserByShareId,
   updateGchexsStatus,
+  getAllAvailablePros,
 };
