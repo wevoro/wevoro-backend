@@ -659,6 +659,14 @@ const getAllAvailablePros = () => __awaiter(void 0, void 0, void 0, function* ()
             },
         },
         {
+            $lookup: {
+                from: 'documents',
+                localField: '_id',
+                foreignField: 'user',
+                as: 'documents',
+            },
+        },
+        {
             $addFields: {
                 personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
                 professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
@@ -671,6 +679,36 @@ const getAllAvailablePros = () => __awaiter(void 0, void 0, void 0, function* ()
                         else: false,
                     },
                 },
+                credentialSummary: {
+                    total: { $size: '$documents' },
+                    verified: {
+                        $size: {
+                            $filter: {
+                                input: '$documents',
+                                as: 'doc',
+                                cond: { $eq: ['$$doc.reviewStatus', 'approved'] },
+                            },
+                        },
+                    },
+                    pending: {
+                        $size: {
+                            $filter: {
+                                input: '$documents',
+                                as: 'doc',
+                                cond: { $eq: ['$$doc.reviewStatus', 'pending'] },
+                            },
+                        },
+                    },
+                    rejected: {
+                        $size: {
+                            $filter: {
+                                input: '$documents',
+                                as: 'doc',
+                                cond: { $eq: ['$$doc.reviewStatus', 'rejected'] },
+                            },
+                        },
+                    },
+                },
             },
         },
         {
@@ -678,6 +716,7 @@ const getAllAvailablePros = () => __awaiter(void 0, void 0, void 0, function* ()
                 password: 0,
                 isGoogleUser: 0,
                 canResetPassword: 0,
+                documents: 0,
                 __v: 0,
             },
         },
