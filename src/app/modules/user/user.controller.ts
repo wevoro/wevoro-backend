@@ -144,6 +144,18 @@ const getPros: RequestHandler = catchAsync(
   }
 );
 
+const getAllAvailablePros: RequestHandler = catchAsync(
+  async (req: Request, res: Response) => {
+    const result = await UserService.getAllAvailablePros();
+    sendResponse<IUser[]>(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: 'Available pros retrieved successfully!',
+      data: result,
+    });
+  }
+);
+
 const getUserById: RequestHandler = catchAsync(
   async (req: Request, res: Response) => {
     const result = await UserService.getUserById(req.params.id);
