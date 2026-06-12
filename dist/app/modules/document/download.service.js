@@ -140,12 +140,14 @@ const getDownloadPackage = (caregiverId, agencyId) => __awaiter(void 0, void 0, 
         throw new ApiError_1.default(http_status_1.default.FORBIDDEN, 'You do not have access to this caregiver\'s documents');
     }
     const docs = yield getDownloadableDocuments(caregiverId, agencyId);
-    // Log bulk download
+    // Log bulk download — skip non-ObjectId entries like the GCHEXS virtual doc
     yield logDownload({
         agencyId,
         caregiverId,
         downloadType: 'bulk',
-        documentsIncluded: docs.map((d) => {
+        documentsIncluded: docs
+            .filter((d) => d._id && d._id !== 'gchexs')
+            .map((d) => {
             var _a;
             return ({
                 documentId: (_a = d._id) === null || _a === void 0 ? void 0 : _a.toString(),

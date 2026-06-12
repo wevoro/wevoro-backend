@@ -163,15 +163,17 @@ const getDownloadPackage = async (
 
   const docs = await getDownloadableDocuments(caregiverId, agencyId);
 
-  // Log bulk download
+  // Log bulk download — skip non-ObjectId entries like the GCHEXS virtual doc
   await logDownload({
     agencyId,
     caregiverId,
     downloadType: 'bulk',
-    documentsIncluded: docs.map((d: any) => ({
-      documentId: d._id?.toString(),
-      title: d.title,
-    })),
+    documentsIncluded: docs
+      .filter((d: any) => d._id && d._id !== 'gchexs')
+      .map((d: any) => ({
+        documentId: d._id?.toString(),
+        title: d.title,
+      })),
   });
 
   return docs.map((d: any) => ({
