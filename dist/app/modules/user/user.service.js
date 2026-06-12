@@ -633,6 +633,58 @@ const getPros = (user) => __awaiter(void 0, void 0, void 0, function* () {
     ]);
     return result.map(item => item.pro).reverse();
 });
+// Browse all available caregivers for partner (approved pros with full profile info)
+const getAllAvailablePros = () => __awaiter(void 0, void 0, void 0, function* () {
+    const result = yield user_model_1.User.aggregate([
+        {
+            $match: {
+                role: 'pro',
+                status: 'approved',
+            },
+        },
+        {
+            $lookup: {
+                from: 'personalinformations',
+                localField: '_id',
+                foreignField: 'user',
+                as: 'personalInfo',
+            },
+        },
+        {
+            $lookup: {
+                from: 'professionalinformations',
+                localField: '_id',
+                foreignField: 'user',
+                as: 'professionalInfo',
+            },
+        },
+        {
+            $addFields: {
+                personalInfo: { $arrayElemAt: ['$personalInfo', 0] },
+                professionalInfo: { $arrayElemAt: ['$professionalInfo', 0] },
+                isRecentlyActive: {
+                    $cond: {
+                        if: { $ifNull: ['$lastLoginAt', false] },
+                        then: {
+                            $lt: [{ $subtract: ['$$NOW', '$lastLoginAt'] }, 7 * 24 * 60 * 60 * 1000],
+                        },
+                        else: false,
+                    },
+                },
+            },
+        },
+        {
+            $project: {
+                password: 0,
+                isGoogleUser: 0,
+                canResetPassword: 0,
+                __v: 0,
+            },
+        },
+        { $sort: { createdAt: -1 } },
+    ]);
+    return result;
+});
 const createNotification = (payload) => __awaiter(void 0, void 0, void 0, function* () {
     const user = yield user_model_1.User.findById(payload.user);
     const email = (user === null || user === void 0 ? void 0 : user.email) || payload.email;
@@ -871,4 +923,5 @@ exports.UserService = {
     autoFillAI,
     getUserByShareId,
     updateGchexsStatus,
+    getAllAvailablePros,
 };

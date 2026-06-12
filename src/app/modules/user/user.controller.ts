@@ -346,4 +346,5 @@ export const UserController = {
   autoFillAI,
   getUserByShareId,
   updateGchexsStatus,
+  getAllAvailablePros,
 };

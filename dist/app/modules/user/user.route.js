@@ -23,6 +23,7 @@ router.get('/profile/:id',
 // auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.PRO),
 user_controller_1.UserController.getUserById);
 router.get('/pros', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.ADMIN), user_controller_1.UserController.getPros);
+router.get('/all-pros', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.ADMIN), user_controller_1.UserController.getAllAvailablePros);
 router.get('/all', (0, auth_1.default)(user_1.ENUM_USER_ROLE.ADMIN), user_controller_1.UserController.getUsers);
 router.patch('/cover-image', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.ADMIN), upload.single('coverImage'), user_controller_1.UserController.updateCoverImage);
 router.post('/store-pro', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.ADMIN), user_controller_1.UserController.storePro);

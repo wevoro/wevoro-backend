@@ -111,6 +111,15 @@ const getPros = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0
         data: result,
     });
 }));
+const getAllAvailablePros = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const result = yield user_service_1.UserService.getAllAvailablePros();
+    (0, sendResponse_1.default)(res, {
+        statusCode: http_status_1.default.OK,
+        success: true,
+        message: 'Available pros retrieved successfully!',
+        data: result,
+    });
+}));
 const getUserById = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const result = yield user_service_1.UserService.getUserById(req.params.id);
     (0, sendResponse_1.default)(res, {
@@ -244,4 +253,5 @@ exports.UserController = {
     autoFillAI,
     getUserByShareId,
     updateGchexsStatus,
+    getAllAvailablePros,
 };
