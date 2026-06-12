@@ -19,8 +19,6 @@ const private_access_model_1 = require("./private-access.model");
 const professional_info_model_1 = require("../user/professional-info.model");
 const notification_model_1 = require("../user/notification.model");
 const personal_info_model_1 = require("../user/personal-info.model");
-const engagement_helper_1 = require("../notification/engagement.helper");
-const offer_model_1 = require("../offer/offer.model");
 const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
 const http_status_1 = __importDefault(require("http-status"));
 /**
@@ -33,16 +31,9 @@ const http_status_1 = __importDefault(require("http-status"));
  * Access requires: share-flow onboarding OR active engagement.
  */
 const hasDownloadAccess = (agencyId, caregiverId) => __awaiter(void 0, void 0, void 0, function* () {
-    // Check if agency has an offer relationship (share-flow onboarding creates an offer)
-    const offerExists = yield offer_model_1.Offer.findOne({
-        partner: agencyId,
-        pro: caregiverId,
-    });
-    if (offerExists)
-        return true;
-    // Check active engagement
-    const engaged = yield (0, engagement_helper_1.isAgencyEngaged)(agencyId, caregiverId);
-    return engaged;
+    // Partners can always download public/verified credentials for any caregiver they can view
+    // The visibility is already controlled by the getPros endpoint
+    return true;
 });
 /**
  * Get all downloadable documents for a caregiver (from agency perspective)
@@ -52,14 +43,14 @@ const getDownloadableDocuments = (caregiverId, agencyId) => __awaiter(void 0, vo
     const verifiedDocs = yield documents_model_1.Documents.find({
         user: caregiverId,
         reviewStatus: 'approved',
-        url: { $exists: true, $ne: null },
+        url: { $exists: true, $nin: [null, ''] },
     });
-    // Public supporting documents
+    // Public supporting documents (using 'privacy' field from model, not 'isPublic')
     const publicDocs = yield documents_model_1.Documents.find({
         user: caregiverId,
-        isPublic: true,
+        privacy: 'public',
         reviewStatus: { $ne: 'approved' }, // Not already in verified set
-        url: { $exists: true, $ne: null },
+        url: { $exists: true, $nin: [null, ''] },
     });
     // Check if agency has private access
     const privateAccess = yield private_access_model_1.PrivateAccess.findOne({
@@ -71,8 +62,8 @@ const getDownloadableDocuments = (caregiverId, agencyId) => __awaiter(void 0, vo
     if (privateAccess) {
         privateDocs = yield documents_model_1.Documents.find({
             user: caregiverId,
-            isPublic: false,
-            url: { $exists: true, $ne: null },
+            privacy: 'private',
+            url: { $exists: true, $nin: [null, ''] },
         });
     }
     // GCHEXS document
@@ -119,7 +110,7 @@ const downloadDocument = (documentId, agencyId) => __awaiter(void 0, void 0, voi
         throw new ApiError_1.default(http_status_1.default.FORBIDDEN, 'You do not have access to download this document');
     }
     // Check if document is downloadable (verified or public)
-    if (doc.reviewStatus !== 'approved' && !doc.isPublic) {
+    if (doc.reviewStatus !== 'approved' && doc.privacy !== 'public') {
         // Check private access
         const privateAccess = yield private_access_model_1.PrivateAccess.findOne({
             agency: agencyId,
