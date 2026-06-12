@@ -36,6 +36,9 @@ const DownloadAuditSchema = new Schema<any>(
         title: { type: String },
       },
     ],
+    // Denormalized agency info for display
+    agencyName: { type: String },
+    agencyEmail: { type: String },
   },
   {
     timestamps: true,

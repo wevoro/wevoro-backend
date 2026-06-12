@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -39,33 +72,12 @@ const hasDownloadAccess = (agencyId, caregiverId) => __awaiter(void 0, void 0, v
  * Get all downloadable documents for a caregiver (from agency perspective)
  */
 const getDownloadableDocuments = (caregiverId, agencyId) => __awaiter(void 0, void 0, void 0, function* () {
-    // Verified credentials with documents
-    const verifiedDocs = yield documents_model_1.Documents.find({
+    // Get ALL documents with valid URLs for the caregiver
+    // Partners can view/download any document that has a file uploaded
+    const allUploadedDocs = yield documents_model_1.Documents.find({
         user: caregiverId,
-        reviewStatus: 'approved',
         url: { $exists: true, $nin: [null, ''] },
     });
-    // Public supporting documents (using 'privacy' field from model, not 'isPublic')
-    const publicDocs = yield documents_model_1.Documents.find({
-        user: caregiverId,
-        privacy: 'public',
-        reviewStatus: { $ne: 'approved' }, // Not already in verified set
-        url: { $exists: true, $nin: [null, ''] },
-    });
-    // Check if agency has private access
-    const privateAccess = yield private_access_model_1.PrivateAccess.findOne({
-        agency: agencyId,
-        caregiver: caregiverId,
-        status: 'granted',
-    });
-    let privateDocs = [];
-    if (privateAccess) {
-        privateDocs = yield documents_model_1.Documents.find({
-            user: caregiverId,
-            privacy: 'private',
-            url: { $exists: true, $nin: [null, ''] },
-        });
-    }
     // GCHEXS document
     const profInfo = yield professional_info_model_1.ProfessionalInfo.findOne({ user: caregiverId });
     let gchexsDoc = null;
@@ -78,7 +90,7 @@ const getDownloadableDocuments = (caregiverId, agencyId) => __awaiter(void 0, vo
             isGchexs: true,
         };
     }
-    const allDocs = [...verifiedDocs, ...publicDocs, ...privateDocs];
+    const allDocs = [...allUploadedDocs];
     if (gchexsDoc)
         allDocs.push(gchexsDoc);
     return allDocs;
@@ -87,6 +99,13 @@ const getDownloadableDocuments = (caregiverId, agencyId) => __awaiter(void 0, vo
  * Log a download event to the audit trail
  */
 const logDownload = (params) => __awaiter(void 0, void 0, void 0, function* () {
+    // Lookup agency name and email for display in audit trail
+    const agencyUser = yield (yield Promise.resolve().then(() => __importStar(require('../user/user.model')))).User.findById(params.agencyId).select('email');
+    const agencyInfo = yield personal_info_model_1.PersonalInfo.findOne({ user: params.agencyId });
+    const agencyName = agencyInfo
+        ? `${agencyInfo.firstName || ''} ${agencyInfo.lastName || ''}`.trim()
+        : (agencyUser === null || agencyUser === void 0 ? void 0 : agencyUser.email) || 'Unknown Agency';
+    const agencyEmail = (agencyUser === null || agencyUser === void 0 ? void 0 : agencyUser.email) || '';
     yield download_audit_model_1.DownloadAudit.create({
         agency: params.agencyId,
         caregiver: params.caregiverId,
@@ -94,6 +113,8 @@ const logDownload = (params) => __awaiter(void 0, void 0, void 0, function* () {
         documentTitle: params.documentTitle,
         downloadType: params.downloadType,
         documentsIncluded: params.documentsIncluded,
+        agencyName,
+        agencyEmail,
     });
 });
 /**
@@ -109,18 +130,7 @@ const downloadDocument = (documentId, agencyId) => __awaiter(void 0, void 0, voi
     if (!hasAccess) {
         throw new ApiError_1.default(http_status_1.default.FORBIDDEN, 'You do not have access to download this document');
     }
-    // Check if document is downloadable (verified or public)
-    if (doc.reviewStatus !== 'approved' && doc.privacy !== 'public') {
-        // Check private access
-        const privateAccess = yield private_access_model_1.PrivateAccess.findOne({
-            agency: agencyId,
-            caregiver: doc.user,
-            status: 'granted',
-        });
-        if (!privateAccess) {
-            throw new ApiError_1.default(http_status_1.default.FORBIDDEN, 'Private document access not granted');
-        }
-    }
+    // Partners can download any document that has a URL (file uploaded)
     // Log the download
     yield logDownload({
         agencyId,
@@ -261,7 +271,6 @@ const getAccessRequests = (caregiverId) => __awaiter(void 0, void 0, void 0, fun
  */
 const getDownloadAuditLog = (caregiverId) => __awaiter(void 0, void 0, void 0, function* () {
     const logs = yield download_audit_model_1.DownloadAudit.find({ caregiver: caregiverId })
-        .populate('agency', 'email')
         .sort({ createdAt: -1 })
         .limit(100);
     return logs;

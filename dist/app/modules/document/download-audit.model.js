@@ -37,6 +37,9 @@ const DownloadAuditSchema = new mongoose_1.Schema({
             title: { type: String },
         },
     ],
+    // Denormalized agency info for display
+    agencyName: { type: String },
+    agencyEmail: { type: String },
 }, {
     timestamps: true,
 });

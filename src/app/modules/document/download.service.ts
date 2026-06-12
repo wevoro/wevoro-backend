@@ -35,36 +35,12 @@ const getDownloadableDocuments = async (
   caregiverId: string,
   agencyId: string
 ): Promise<any[]> => {
-  // Verified credentials with documents
-  const verifiedDocs = await Documents.find({
+  // Get ALL documents with valid URLs for the caregiver
+  // Partners can view/download any document that has a file uploaded
+  const allUploadedDocs = await Documents.find({
     user: caregiverId,
-    reviewStatus: 'approved',
     url: { $exists: true, $nin: [null, ''] },
   });
-
-  // Public supporting documents (using 'privacy' field from model, not 'isPublic')
-  const publicDocs = await Documents.find({
-    user: caregiverId,
-    privacy: 'public',
-    reviewStatus: { $ne: 'approved' }, // Not already in verified set
-    url: { $exists: true, $nin: [null, ''] },
-  });
-
-  // Check if agency has private access
-  const privateAccess = await PrivateAccess.findOne({
-    agency: agencyId,
-    caregiver: caregiverId,
-    status: 'granted',
-  });
-
-  let privateDocs: any[] = [];
-  if (privateAccess) {
-    privateDocs = await Documents.find({
-      user: caregiverId,
-      privacy: 'private',
-      url: { $exists: true, $nin: [null, ''] },
-    });
-  }
 
   // GCHEXS document
   const profInfo = await ProfessionalInfo.findOne({ user: caregiverId });
@@ -79,7 +55,7 @@ const getDownloadableDocuments = async (
     };
   }
 
-  const allDocs = [...verifiedDocs, ...publicDocs, ...privateDocs];
+  const allDocs = [...allUploadedDocs];
   if (gchexsDoc) allDocs.push(gchexsDoc);
 
   return allDocs;
@@ -96,6 +72,14 @@ const logDownload = async (params: {
   downloadType: 'individual' | 'bulk';
   documentsIncluded?: Array<{ documentId: string; title: string }>;
 }): Promise<void> => {
+  // Lookup agency name and email for display in audit trail
+  const agencyUser = await (await import('../user/user.model')).User.findById(params.agencyId).select('email');
+  const agencyInfo = await PersonalInfo.findOne({ user: params.agencyId });
+  const agencyName = agencyInfo
+    ? `${agencyInfo.firstName || ''} ${agencyInfo.lastName || ''}`.trim()
+    : agencyUser?.email || 'Unknown Agency';
+  const agencyEmail = agencyUser?.email || '';
+
   await DownloadAudit.create({
     agency: params.agencyId,
     caregiver: params.caregiverId,
@@ -103,6 +87,8 @@ const logDownload = async (params: {
     documentTitle: params.documentTitle,
     downloadType: params.downloadType,
     documentsIncluded: params.documentsIncluded,
+    agencyName,
+    agencyEmail,
   });
 };
 
@@ -124,18 +110,7 @@ const downloadDocument = async (
     throw new ApiError(httpStatus.FORBIDDEN, 'You do not have access to download this document');
   }
 
-  // Check if document is downloadable (verified or public)
-  if (doc.reviewStatus !== 'approved' && doc.privacy !== 'public') {
-    // Check private access
-    const privateAccess = await PrivateAccess.findOne({
-      agency: agencyId,
-      caregiver: doc.user,
-      status: 'granted',
-    });
-    if (!privateAccess) {
-      throw new ApiError(httpStatus.FORBIDDEN, 'Private document access not granted');
-    }
-  }
+  // Partners can download any document that has a URL (file uploaded)
 
   // Log the download
   await logDownload({
@@ -305,7 +280,6 @@ const getAccessRequests = async (caregiverId: string): Promise<any[]> => {
  */
 const getDownloadAuditLog = async (caregiverId: string): Promise<any[]> => {
   const logs = await DownloadAudit.find({ caregiver: caregiverId })
-    .populate('agency', 'email')
     .sort({ createdAt: -1 })
     .limit(100);
   return logs;
