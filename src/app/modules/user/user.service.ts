@@ -23,6 +23,7 @@ import { extractText, extractImages, getDocumentProxy } from 'unpdf';
 import sharp from 'sharp';
 import { Offer } from '../offer/offer.model';
 import { PartnerVerification } from '../partner-verification/partner-verification.model';
+import { CredentialingService } from '../credentialing/credentialing.service';
 import crypto from 'crypto';
 cloudinary.v2.config({
   cloud_name: config.cloudinary.cloud_name,
@@ -72,6 +73,20 @@ const createUser = async (user: Partial<IUser>): Promise<IUser | null> => {
   // Generate shareId for pro users
   if (user.role === ENUM_USER_ROLE.PRO) {
     (user as any).shareId = crypto.randomUUID();
+  }
+
+  // SCRUM-87/88: capture share-link attribution durably at signup. The agency
+  // arrived via a caregiver's share link (/p/[shareId]); resolve and persist the
+  // source caregiver so the engagement can be recorded once onboarding completes.
+  const sourceShareId = (user as any).sourceShareId;
+  delete (user as any).sourceShareId;
+  if (user.role === ENUM_USER_ROLE.PARTNER && sourceShareId) {
+    const sourceCaregiver = await User.findOne({
+      shareId: sourceShareId,
+    }).select('_id role');
+    if (sourceCaregiver && sourceCaregiver.role === ENUM_USER_ROLE.PRO) {
+      (user as any).sourceCaregiverId = sourceCaregiver._id;
+    }
   }
 
   const newUser = await User.create(user);
@@ -227,6 +242,25 @@ const updateOrCreateUserPersonalInformation = async (
     { $set: payload },
     { new: true }
   );
+
+  // SCRUM-87/88: when an agency completes onboarding via a caregiver's share
+  // link, record the (caregiver, agency) engagement and fire the one-time
+  // "Agency Onboarded" notification. Idempotent and best-effort — attribution
+  // must never break the personal-information save.
+  try {
+    const account = await User.findById(id).select('role sourceCaregiverId');
+    if (
+      account?.role === ENUM_USER_ROLE.PARTNER &&
+      (account as any)?.sourceCaregiverId
+    ) {
+      await CredentialingService.recordEngagement(
+        (account as any).sourceCaregiverId.toString(),
+        (id as string).toString()
+      );
+    }
+  } catch (err) {
+    console.error('Failed to record credentialing engagement:', err);
+  }
 
   return result;
 };

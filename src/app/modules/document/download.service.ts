@@ -6,6 +6,7 @@ import { Notification } from '../user/notification.model';
 import { PersonalInfo } from '../user/personal-info.model';
 import { isAgencyEngaged } from '../notification/engagement.helper';
 import { Offer } from '../offer/offer.model';
+import { CredentialingService } from '../credentialing/credentialing.service';
 import ApiError from '../../../errors/ApiError';
 import httpStatus from 'http-status';
 
@@ -80,6 +81,13 @@ const logDownload = async (params: {
     : agencyUser?.email || 'Unknown Agency';
   const agencyEmail = agencyUser?.email || '';
 
+  // SCRUM-87: detect the first download for this (caregiver, agency) pair BEFORE
+  // writing the new audit record, so the notification fires exactly once.
+  const priorDownloads = await DownloadAudit.countDocuments({
+    agency: params.agencyId,
+    caregiver: params.caregiverId,
+  });
+
   await DownloadAudit.create({
     agency: params.agencyId,
     caregiver: params.caregiverId,
@@ -90,6 +98,20 @@ const logDownload = async (params: {
     agencyName,
     agencyEmail,
   });
+
+  // SCRUM-87: on the first download (individual or bulk), notify the caregiver.
+  // Subsequent downloads from the same agency do not re-fire (Scenario 4).
+  // Best-effort — a notification failure must not fail the download.
+  if (priorDownloads === 0) {
+    try {
+      await CredentialingService.notifyCredentialsDownloaded(
+        params.caregiverId,
+        agencyName
+      );
+    } catch (err) {
+      console.error('Failed to fire credentials-downloaded notification:', err);
+    }
+  }
 };
 
 /**
