@@ -81,9 +81,16 @@ const createUser = async (user: Partial<IUser>): Promise<IUser | null> => {
   const sourceShareId = (user as any).sourceShareId;
   delete (user as any).sourceShareId;
   if (user.role === ENUM_USER_ROLE.PARTNER && sourceShareId) {
-    const sourceCaregiver = await User.findOne({
+    let sourceCaregiver = await User.findOne({
       shareId: sourceShareId,
     }).select('_id role');
+    // Legacy caregivers (created before shareId existed) share links built from
+    // their _id — mirror getUserByShareId's fallback so attribution still lands.
+    if (!sourceCaregiver && mongoose.Types.ObjectId.isValid(sourceShareId)) {
+      sourceCaregiver = (await User.findById(sourceShareId).select(
+        '_id role'
+      )) as any;
+    }
     if (sourceCaregiver && sourceCaregiver.role === ENUM_USER_ROLE.PRO) {
       (user as any).sourceCaregiverId = sourceCaregiver._id;
     }
