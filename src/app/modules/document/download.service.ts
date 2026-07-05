@@ -76,9 +76,15 @@ const logDownload = async (params: {
   // Lookup agency name and email for display in audit trail
   const agencyUser = await (await import('../user/user.model')).User.findById(params.agencyId).select('email');
   const agencyInfo = await PersonalInfo.findOne({ user: params.agencyId });
-  const agencyName = agencyInfo
-    ? `${agencyInfo.firstName || ''} ${agencyInfo.lastName || ''}`.trim()
-    : agencyUser?.email || 'Unknown Agency';
+  // Prefer the company name (matches the "[Agency name] ..." notification copy
+  // and the agency-onboarded notification); fall back to contact name, then email.
+  const agencyName =
+    (agencyInfo as any)?.companyName ||
+    (agencyInfo
+      ? `${agencyInfo.firstName || ''} ${agencyInfo.lastName || ''}`.trim()
+      : '') ||
+    agencyUser?.email ||
+    'Unknown Agency';
   const agencyEmail = agencyUser?.email || '';
 
   // SCRUM-87: detect the first download for this (caregiver, agency) pair BEFORE
