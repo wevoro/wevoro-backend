@@ -37,4 +37,7 @@ exports.default = {
         prod: process.env.FRONTEND_URL_PROD,
     },
     openai_api_key: process.env.OPENAI_API_KEY,
+    // SCRUM-87/88: platform-wide credentialing-only beta flag. Defaults ON unless
+    // explicitly set to 'false', so the beta stays safe if the env var is missing.
+    credentialing_mode: process.env.CREDENTIALING_MODE !== 'false',
 };

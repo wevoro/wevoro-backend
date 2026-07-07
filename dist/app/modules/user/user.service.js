@@ -35,6 +35,7 @@ const unpdf_1 = require("unpdf");
 const sharp_1 = __importDefault(require("sharp"));
 const offer_model_1 = require("../offer/offer.model");
 const partner_verification_model_1 = require("../partner-verification/partner-verification.model");
+const credentialing_service_1 = require("../credentialing/credentialing.service");
 const crypto_1 = __importDefault(require("crypto"));
 cloudinary_1.default.v2.config({
     cloud_name: config_1.default.cloudinary.cloud_name,
@@ -71,6 +72,24 @@ const createUser = (user) => __awaiter(void 0, void 0, void 0, function* () {
     // Generate shareId for pro users
     if (user.role === user_1.ENUM_USER_ROLE.PRO) {
         user.shareId = crypto_1.default.randomUUID();
+    }
+    // SCRUM-87/88: capture share-link attribution durably at signup. The agency
+    // arrived via a caregiver's share link (/p/[shareId]); resolve and persist the
+    // source caregiver so the engagement can be recorded once onboarding completes.
+    const sourceShareId = user.sourceShareId;
+    delete user.sourceShareId;
+    if (user.role === user_1.ENUM_USER_ROLE.PARTNER && sourceShareId) {
+        let sourceCaregiver = yield user_model_1.User.findOne({
+            shareId: sourceShareId,
+        }).select('_id role');
+        // Legacy caregivers (created before shareId existed) share links built from
+        // their _id — mirror getUserByShareId's fallback so attribution still lands.
+        if (!sourceCaregiver && mongoose_1.default.Types.ObjectId.isValid(sourceShareId)) {
+            sourceCaregiver = (yield user_model_1.User.findById(sourceShareId).select('_id role'));
+        }
+        if (sourceCaregiver && sourceCaregiver.role === user_1.ENUM_USER_ROLE.PRO) {
+            user.sourceCaregiverId = sourceCaregiver._id;
+        }
     }
     const newUser = yield user_model_1.User.create(user);
     if (!newUser) {
@@ -185,6 +204,20 @@ const updateOrCreateUserPersonalInformation = (payload, id, file) => __awaiter(v
         result = yield personal_info_model_1.PersonalInfo.create(Object.assign({ user: id }, payload));
     }
     result = yield personal_info_model_1.PersonalInfo.findOneAndUpdate({ user: id }, { $set: payload }, { new: true });
+    // SCRUM-87/88: when an agency completes onboarding via a caregiver's share
+    // link, record the (caregiver, agency) engagement and fire the one-time
+    // "Agency Onboarded" notification. Idempotent and best-effort — attribution
+    // must never break the personal-information save.
+    try {
+        const account = yield user_model_1.User.findById(id).select('role sourceCaregiverId');
+        if ((account === null || account === void 0 ? void 0 : account.role) === user_1.ENUM_USER_ROLE.PARTNER &&
+            (account === null || account === void 0 ? void 0 : account.sourceCaregiverId)) {
+            yield credentialing_service_1.CredentialingService.recordEngagement(account.sourceCaregiverId.toString(), id.toString());
+        }
+    }
+    catch (err) {
+        console.error('Failed to record credentialing engagement:', err);
+    }
     return result;
 });
 const updateOrCreateUserProfessionalInformation = (payload, id, files) => __awaiter(void 0, void 0, void 0, function* () {

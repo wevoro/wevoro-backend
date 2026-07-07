@@ -58,7 +58,7 @@ const OfferSchema = new mongoose_1.Schema({
     ],
     status: {
         type: String,
-        enum: ['pending', 'onboarded', 'rejected', 'responded'],
+        enum: ['pending', 'onboarded', 'rejected', 'responded', 'accepted'],
         default: 'pending',
     },
     isRemovedByPro: {

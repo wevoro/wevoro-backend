@@ -1,5 +1,6 @@
 node_modules
-dist
+# dist is intentionally COMMITTED — the QA deployment runs `bun run dist/server.js`
+# from the checked-in build. Rebuild (npx tsc) and commit dist with backend changes.
 
 # env / secrets — never commit
 .env

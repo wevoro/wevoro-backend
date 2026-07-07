@@ -27,6 +27,9 @@ const NotificationSchema = new mongoose_1.Schema({
             'private_access_request',
             'private_access_granted',
             'private_access_revoked',
+            // SCRUM-87/88: credentialing-mode engagement notifications
+            'agency_onboarded',
+            'credentials_downloaded',
         ],
         default: 'general',
     },
