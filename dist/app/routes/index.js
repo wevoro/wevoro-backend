@@ -11,6 +11,7 @@ const document_route_1 = require("../modules/document/document.route");
 const offer_route_1 = require("../modules/offer/offer.route");
 const partner_verification_route_1 = require("../modules/partner-verification/partner-verification.route");
 const shift_route_1 = require("../modules/shift/shift.route");
+const credentialing_route_1 = require("../modules/credentialing/credentialing.route");
 const router = express_1.default.Router();
 const moduleRoutes = [
     {
@@ -40,6 +41,10 @@ const moduleRoutes = [
     {
         path: '/shift',
         route: shift_route_1.ShiftRoutes,
+    },
+    {
+        path: '/credentialing',
+        route: credentialing_route_1.CredentialingRoutes,
     },
 ];
 moduleRoutes.forEach(route => router.use(route.path, route.route));

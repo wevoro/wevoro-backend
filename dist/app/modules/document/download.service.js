@@ -52,6 +52,7 @@ const private_access_model_1 = require("./private-access.model");
 const professional_info_model_1 = require("../user/professional-info.model");
 const notification_model_1 = require("../user/notification.model");
 const personal_info_model_1 = require("../user/personal-info.model");
+const credentialing_service_1 = require("../credentialing/credentialing.service");
 const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
 const http_status_1 = __importDefault(require("http-status"));
 /**
@@ -102,10 +103,21 @@ const logDownload = (params) => __awaiter(void 0, void 0, void 0, function* () {
     // Lookup agency name and email for display in audit trail
     const agencyUser = yield (yield Promise.resolve().then(() => __importStar(require('../user/user.model')))).User.findById(params.agencyId).select('email');
     const agencyInfo = yield personal_info_model_1.PersonalInfo.findOne({ user: params.agencyId });
-    const agencyName = agencyInfo
-        ? `${agencyInfo.firstName || ''} ${agencyInfo.lastName || ''}`.trim()
-        : (agencyUser === null || agencyUser === void 0 ? void 0 : agencyUser.email) || 'Unknown Agency';
+    // Prefer the company name (matches the "[Agency name] ..." notification copy
+    // and the agency-onboarded notification); fall back to contact name, then email.
+    const agencyName = (agencyInfo === null || agencyInfo === void 0 ? void 0 : agencyInfo.companyName) ||
+        (agencyInfo
+            ? `${agencyInfo.firstName || ''} ${agencyInfo.lastName || ''}`.trim()
+            : '') ||
+        (agencyUser === null || agencyUser === void 0 ? void 0 : agencyUser.email) ||
+        'Unknown Agency';
     const agencyEmail = (agencyUser === null || agencyUser === void 0 ? void 0 : agencyUser.email) || '';
+    // SCRUM-87: detect the first download for this (caregiver, agency) pair BEFORE
+    // writing the new audit record, so the notification fires exactly once.
+    const priorDownloads = yield download_audit_model_1.DownloadAudit.countDocuments({
+        agency: params.agencyId,
+        caregiver: params.caregiverId,
+    });
     yield download_audit_model_1.DownloadAudit.create({
         agency: params.agencyId,
         caregiver: params.caregiverId,
@@ -116,6 +128,17 @@ const logDownload = (params) => __awaiter(void 0, void 0, void 0, function* () {
         agencyName,
         agencyEmail,
     });
+    // SCRUM-87: on the first download (individual or bulk), notify the caregiver.
+    // Subsequent downloads from the same agency do not re-fire (Scenario 4).
+    // Best-effort — a notification failure must not fail the download.
+    if (priorDownloads === 0) {
+        try {
+            yield credentialing_service_1.CredentialingService.notifyCredentialsDownloaded(params.caregiverId, agencyName);
+        }
+        catch (err) {
+            console.error('Failed to fire credentials-downloaded notification:', err);
+        }
+    }
 });
 /**
  * Download a single document (returns the document URL + logs audit)
