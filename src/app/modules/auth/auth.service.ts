@@ -24,7 +24,14 @@ const loginUser = async (payload: ILoginUser): Promise<ILoginUserResponse> => {
 
   const isUserExist = await User.isUserExist(email);
 
-  if (isUserExist && source !== isUserExist.role) {
+  // The admin login screen sends source='admin' for both admin and super_admin
+  // accounts (the client can't know the role before logging in).
+  const roleMatchesSource =
+    source === isUserExist?.role ||
+    (source === ENUM_USER_ROLE.ADMIN &&
+      isUserExist?.role === ENUM_USER_ROLE.SUPER_ADMIN);
+
+  if (isUserExist && !roleMatchesSource) {
     throw new ApiError(
       httpStatus.BAD_REQUEST,
       `This account is associated with ${isUserExist.role}! Login as ${isUserExist.role} instead.`
@@ -46,6 +53,7 @@ const loginUser = async (payload: ILoginUser): Promise<ILoginUserResponse> => {
   }
 
   const { email: userEmail, role, _id, status } = isUserExist;
+  const permissions = (isUserExist as any).permissions || [];
 
   if (status === 'blocked') {
     throw new ApiError(
@@ -65,13 +73,13 @@ const loginUser = async (payload: ILoginUser): Promise<ILoginUserResponse> => {
   //create access token & refresh token
 
   const accessToken = jwtHelpers.createToken(
-    { email: userEmail, role, _id, status },
+    { email: userEmail, role, _id, status, permissions },
     config.jwt.secret as Secret,
     config.jwt.expires_in as string
   );
 
   const refreshToken = jwtHelpers.createToken(
-    { email: userEmail, role, _id, status },
+    { email: userEmail, role, _id, status, permissions },
     config.jwt.refresh_secret as Secret,
     config.jwt.refresh_expires_in as string
   );

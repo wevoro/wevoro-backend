@@ -4,6 +4,10 @@ import { Model } from 'mongoose';
 export type IUser = {
   _id: import('mongoose').Types.ObjectId | string;
   role: string;
+  // Super Admin panel: granular per-admin permission keys (see user.constant.ts).
+  permissions: string[];
+  // Super Admin panel: role held before promotion to admin (for clean demote).
+  previousRole?: string;
   password: string;
   name: string;
   email: string;
@@ -75,7 +79,13 @@ export type UserModel = {
   ): Promise<
     Pick<
       IUser,
-      'email' | 'password' | 'role' | 'isGoogleUser' | '_id' | 'status'
+      | 'email'
+      | 'password'
+      | 'role'
+      | 'isGoogleUser'
+      | '_id'
+      | 'status'
+      | 'permissions'
     >
   >;
   isGoogleUser(

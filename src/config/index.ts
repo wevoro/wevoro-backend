@@ -19,6 +19,14 @@ export default {
   email: process.env.EMAIL,
   appPass: process.env.APP_PASS,
   default_admin_pass: process.env.DEFAULT_ADMIN_PASS,
+  // Super Admin panel. The fixed seeded super admin, and the shared secret that
+  // gates the self-serve super-admin setup link (/super-setup). Defaults are
+  // provided so the feature works out of the box in dev; override in prod .env.
+  super_admin: {
+    email: process.env.SUPER_ADMIN_EMAIL || 'riadsuper@gmail.com',
+    password: process.env.SUPER_ADMIN_PASSWORD || '123456',
+    setup_key: process.env.SUPER_ADMIN_SETUP_KEY || 'wevoro-super-2026',
+  },
 
   cloudinary: {
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,

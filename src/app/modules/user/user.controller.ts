@@ -323,9 +323,69 @@ const updateGchexsStatus: RequestHandler = catchAsync(
   }
 );
 
+// Super Admin panel controllers ---------------------------------------------
+const getAdmins: RequestHandler = catchAsync(
+  async (req: Request, res: Response) => {
+    const result = await UserService.getAdmins();
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: 'Admins retrieved successfully!',
+      data: result,
+    });
+  }
+);
+
+const updateUserRole: RequestHandler = catchAsync(
+  async (req: Request, res: Response) => {
+    const id = req.params.id;
+    const { role } = req.body;
+    const actorId = (req.user as any)?._id;
+    const result = await UserService.updateUserRole(id, role, actorId);
+    sendResponse<IUser>(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: 'Role updated successfully!',
+      data: result,
+    });
+  }
+);
+
+const setAdminPermissions: RequestHandler = catchAsync(
+  async (req: Request, res: Response) => {
+    const id = req.params.id;
+    const { permissions } = req.body;
+    const result = await UserService.setAdminPermissions(id, permissions);
+    sendResponse<IUser>(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: 'Permissions updated successfully!',
+      data: result,
+    });
+  }
+);
+
+const superSetup: RequestHandler = catchAsync(
+  async (req: Request, res: Response) => {
+    const result = await UserService.superSetup(req.body);
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: result.created
+        ? 'Super admin created successfully!'
+        : 'Account promoted to super admin successfully!',
+      data: result,
+    });
+  }
+);
+
 export const UserController = {
   createUser,
   updateUser,
+  getAdmins,
+  updateUserRole,
+  setAdminPermissions,
+  superSetup,
   getUserProfile,
   updateOrCreateUserPersonalInformation,
   updateOrCreateUserProfessionalInformation,
