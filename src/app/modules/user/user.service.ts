@@ -1361,11 +1361,13 @@ const superSetup = async (payload: {
 };
 
 /**
- * Idempotent boot seed: guarantee the fixed super admin exists. Safe to call on
- * every server start — creates it once, then leaves it alone.
+ * Idempotent boot seed: guarantee a super admin exists — but ONLY when both
+ * SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD env vars are set. With no env
+ * config this is a no-op; super admins are then created via /super-setup.
  */
 const ensureSuperAdmin = async (): Promise<void> => {
   try {
+    if (!config.super_admin.email || !config.super_admin.password) return;
     const email = config.super_admin.email.trim().toLowerCase();
     const existing = await User.findOne({ email }).select('_id role');
     if (!existing) {

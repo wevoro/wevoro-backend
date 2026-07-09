@@ -19,12 +19,12 @@ export default {
   email: process.env.EMAIL,
   appPass: process.env.APP_PASS,
   default_admin_pass: process.env.DEFAULT_ADMIN_PASS,
-  // Super Admin panel. The fixed seeded super admin, and the shared secret that
-  // gates the self-serve super-admin setup link (/super-setup). Defaults are
-  // provided so the feature works out of the box in dev; override in prod .env.
+  // Super Admin panel. Optional boot-seeded super admin (only when BOTH env vars
+  // are set — no hardcoded default account), and the shared secret that gates the
+  // self-serve super-admin setup link (/super-setup).
   super_admin: {
-    email: process.env.SUPER_ADMIN_EMAIL || 'riadsuper@gmail.com',
-    password: process.env.SUPER_ADMIN_PASSWORD || '123456',
+    email: process.env.SUPER_ADMIN_EMAIL,
+    password: process.env.SUPER_ADMIN_PASSWORD,
     setup_key: process.env.SUPER_ADMIN_SETUP_KEY || 'wevoro-super-2026',
   },
 
