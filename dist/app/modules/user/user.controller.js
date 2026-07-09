@@ -232,9 +232,58 @@ const updateGchexsStatus = (0, catchAsync_1.default)((req, res) => __awaiter(voi
         data: result,
     });
 }));
+// Super Admin panel controllers ---------------------------------------------
+const getAdmins = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const result = yield user_service_1.UserService.getAdmins();
+    (0, sendResponse_1.default)(res, {
+        statusCode: http_status_1.default.OK,
+        success: true,
+        message: 'Admins retrieved successfully!',
+        data: result,
+    });
+}));
+const updateUserRole = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    const id = req.params.id;
+    const { role } = req.body;
+    const actorId = (_a = req.user) === null || _a === void 0 ? void 0 : _a._id;
+    const result = yield user_service_1.UserService.updateUserRole(id, role, actorId);
+    (0, sendResponse_1.default)(res, {
+        statusCode: http_status_1.default.OK,
+        success: true,
+        message: 'Role updated successfully!',
+        data: result,
+    });
+}));
+const setAdminPermissions = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const id = req.params.id;
+    const { permissions } = req.body;
+    const result = yield user_service_1.UserService.setAdminPermissions(id, permissions);
+    (0, sendResponse_1.default)(res, {
+        statusCode: http_status_1.default.OK,
+        success: true,
+        message: 'Permissions updated successfully!',
+        data: result,
+    });
+}));
+const superSetup = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const result = yield user_service_1.UserService.superSetup(req.body);
+    (0, sendResponse_1.default)(res, {
+        statusCode: http_status_1.default.OK,
+        success: true,
+        message: result.created
+            ? 'Super admin created successfully!'
+            : 'Account promoted to super admin successfully!',
+        data: result,
+    });
+}));
 exports.UserController = {
     createUser,
     updateUser,
+    getAdmins,
+    updateUserRole,
+    setAdminPermissions,
+    superSetup,
     getUserProfile,
     updateOrCreateUserPersonalInformation,
     updateOrCreateUserProfessionalInformation,

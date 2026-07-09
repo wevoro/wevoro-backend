@@ -29,7 +29,12 @@ const sendMail_1 = require("./sendMail");
 const loginUser = (payload) => __awaiter(void 0, void 0, void 0, function* () {
     const { email, password, source } = payload;
     const isUserExist = yield user_model_1.User.isUserExist(email);
-    if (isUserExist && source !== isUserExist.role) {
+    // The admin login screen sends source='admin' for both admin and super_admin
+    // accounts (the client can't know the role before logging in).
+    const roleMatchesSource = source === (isUserExist === null || isUserExist === void 0 ? void 0 : isUserExist.role) ||
+        (source === user_1.ENUM_USER_ROLE.ADMIN &&
+            (isUserExist === null || isUserExist === void 0 ? void 0 : isUserExist.role) === user_1.ENUM_USER_ROLE.SUPER_ADMIN);
+    if (isUserExist && !roleMatchesSource) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, `This account is associated with ${isUserExist.role}! Login as ${isUserExist.role} instead.`);
     }
     // console.log('🚀 ~ loginUser ~ isUserExist:', isUserExist);
@@ -41,6 +46,7 @@ const loginUser = (payload) => __awaiter(void 0, void 0, void 0, function* () {
         throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'User does not exist');
     }
     const { email: userEmail, role, _id, status } = isUserExist;
+    const permissions = isUserExist.permissions || [];
     if (status === 'blocked') {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Your account is blocked! Please contact support.');
     }
@@ -51,8 +57,8 @@ const loginUser = (payload) => __awaiter(void 0, void 0, void 0, function* () {
     }
     yield user_model_1.User.findByIdAndUpdate(_id, { lastLoginAt: new Date() });
     //create access token & refresh token
-    const accessToken = jwtHelpers_1.jwtHelpers.createToken({ email: userEmail, role, _id, status }, config_1.default.jwt.secret, config_1.default.jwt.expires_in);
-    const refreshToken = jwtHelpers_1.jwtHelpers.createToken({ email: userEmail, role, _id, status }, config_1.default.jwt.refresh_secret, config_1.default.jwt.refresh_expires_in);
+    const accessToken = jwtHelpers_1.jwtHelpers.createToken({ email: userEmail, role, _id, status, permissions }, config_1.default.jwt.secret, config_1.default.jwt.expires_in);
+    const refreshToken = jwtHelpers_1.jwtHelpers.createToken({ email: userEmail, role, _id, status, permissions }, config_1.default.jwt.refresh_secret, config_1.default.jwt.refresh_expires_in);
     const returnData = {
         accessToken,
         refreshToken,

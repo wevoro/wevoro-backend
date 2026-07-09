@@ -17,6 +17,7 @@ const mongoose_1 = __importDefault(require("mongoose"));
 const app_1 = __importDefault(require("./app"));
 const index_1 = __importDefault(require("./config/index"));
 const credential_notification_service_1 = require("./app/modules/notification/credential-notification.service");
+const user_service_1 = require("./app/modules/user/user.service");
 process.on('uncaughtException', error => {
     console.error(error);
     process.exit(1);
@@ -74,6 +75,8 @@ function bootstrap() {
         // SCRUM-65: Start credential expiration notification cron
         if (mongoose_1.default.connection.readyState === 1) {
             (0, credential_notification_service_1.startCredentialNotificationCron)();
+            // Super Admin panel: guarantee the fixed super admin exists.
+            yield user_service_1.UserService.ensureSuperAdmin();
         }
         process.on('unhandledRejection', error => {
             if (server) {
