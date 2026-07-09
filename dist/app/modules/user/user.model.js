@@ -20,8 +20,19 @@ const config_1 = __importDefault(require("../../../config"));
 const UserSchema = new mongoose_1.Schema({
     role: {
         type: String,
-        enum: ['pro', 'partner'],
+        enum: ['pro', 'partner', 'admin', 'super_admin'],
         required: true,
+    },
+    // Super Admin panel: granular per-admin permission keys. Empty/missing on an
+    // existing admin => full legacy access (see user.constant.ts).
+    permissions: {
+        type: [String],
+        default: [],
+    },
+    // Super Admin panel: the role this account had before being promoted to
+    // admin, so "remove admin access" restores it (caregiver vs agency).
+    previousRole: {
+        type: String,
     },
     password: {
         type: String,
@@ -83,7 +94,7 @@ const UserSchema = new mongoose_1.Schema({
 });
 UserSchema.statics.isUserExist = function (email) {
     return __awaiter(this, void 0, void 0, function* () {
-        return yield exports.User.findOne({ email, isGoogleUser: false }, { email: 1, password: 1, role: 1, _id: 1, status: 1 });
+        return yield exports.User.findOne({ email, isGoogleUser: false }, { email: 1, password: 1, role: 1, _id: 1, status: 1, permissions: 1 });
     });
 };
 UserSchema.statics.isGoogleUser = function (email) {

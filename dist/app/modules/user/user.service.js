@@ -36,6 +36,7 @@ const sharp_1 = __importDefault(require("sharp"));
 const offer_model_1 = require("../offer/offer.model");
 const partner_verification_model_1 = require("../partner-verification/partner-verification.model");
 const credentialing_service_1 = require("../credentialing/credentialing.service");
+const user_constant_1 = require("./user.constant");
 const crypto_1 = __importDefault(require("crypto"));
 cloudinary_1.default.v2.config({
     cloud_name: config_1.default.cloudinary.cloud_name,
@@ -57,6 +58,14 @@ const joinWaitlist = (email) => __awaiter(void 0, void 0, void 0, function* () {
     return newUser;
 });
 const createUser = (user) => __awaiter(void 0, void 0, void 0, function* () {
+    // Prevent privilege escalation: public signup may only create pro/partner
+    // accounts. Admin / super_admin are created only via the guarded super-admin
+    // flows (never through this mass-assignment path).
+    if (user.role !== user_1.ENUM_USER_ROLE.PRO &&
+        user.role !== user_1.ENUM_USER_ROLE.PARTNER) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Invalid role');
+    }
+    delete user.permissions;
     const existingUser = yield user_model_1.User.isUserExist(user.email);
     if (existingUser) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'User already exists');
@@ -142,6 +151,12 @@ const updateUser = (payload, id
 // file: any
 ) => __awaiter(void 0, void 0, void 0, function* () {
     console.log({ payload });
+    // Security: role & permissions can ONLY be changed through the dedicated
+    // super-admin-guarded endpoints (updateUserRole / setAdminPermissions), never
+    // through this generic admin update. Strip them so a plain admin cannot
+    // escalate anyone (including themselves) via PATCH /user/update/:id.
+    delete payload.role;
+    delete payload.permissions;
     if (payload.status === 'removed') {
         const user = yield user_model_1.User.findById(id);
         if (!user) {
@@ -973,9 +988,174 @@ const updateGchexsStatus = (userId, gchexsStatus, gchexsDocumentUrl, gchexsDocum
     const result = yield professional_info_model_1.ProfessionalInfo.findOneAndUpdate({ user: userId }, { $set: updateData }, { new: true, upsert: true });
     return result;
 });
+// ============================================================================
+// Super Admin panel — admin management (all callers are super_admin-guarded at
+// the route layer). Role & permission mutations live here ONLY, never in the
+// generic updateUser.
+// ============================================================================
+/** List every admin / super_admin with their permissions. */
+const getAdmins = () => __awaiter(void 0, void 0, void 0, function* () {
+    const admins = yield user_model_1.User.find({
+        role: { $in: [user_1.ENUM_USER_ROLE.ADMIN, user_1.ENUM_USER_ROLE.SUPER_ADMIN] },
+    })
+        .select('email role permissions previousRole status createdAt lastLoginAt')
+        .lean();
+    const withNames = yield Promise.all(admins.map((a) => __awaiter(void 0, void 0, void 0, function* () {
+        const info = yield personal_info_model_1.PersonalInfo.findOne({ user: a._id })
+            .select('firstName lastName image companyName')
+            .lean();
+        const name = info
+            ? `${info.firstName || ''} ${info.lastName || ''}`.trim()
+            : '';
+        return Object.assign(Object.assign({}, a), { name: name || (info === null || info === void 0 ? void 0 : info.companyName) || a.email, image: (info === null || info === void 0 ? void 0 : info.image) || null });
+    })));
+    return withNames;
+});
+/**
+ * Promote a normal user to admin, or demote an admin back to a normal role.
+ * Only role — nothing else — is touched. Super admins can never be created or
+ * demoted here (that path is the guarded super-setup / seed only).
+ */
+const updateUserRole = (id, role, actorId) => __awaiter(void 0, void 0, void 0, function* () {
+    const allowedTargets = [
+        user_1.ENUM_USER_ROLE.ADMIN,
+        user_1.ENUM_USER_ROLE.PRO,
+        user_1.ENUM_USER_ROLE.PARTNER,
+    ];
+    if (!allowedTargets.includes(role)) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Invalid target role');
+    }
+    const target = yield user_model_1.User.findById(id).select('role previousRole email');
+    if (!target) {
+        throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'User not found');
+    }
+    // A super admin can only be changed via the guarded super-admin flow.
+    if (target.role === user_1.ENUM_USER_ROLE.SUPER_ADMIN) {
+        throw new ApiError_1.default(http_status_1.default.FORBIDDEN, 'A super admin cannot be modified here');
+    }
+    // Never let a super admin lock themselves out.
+    if (actorId && actorId.toString() === id.toString()) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'You cannot change your own role');
+    }
+    const update = { role };
+    if (role === user_1.ENUM_USER_ROLE.ADMIN) {
+        // Promoting: remember where they came from so demote is lossless.
+        if (target.role === user_1.ENUM_USER_ROLE.PRO ||
+            target.role === user_1.ENUM_USER_ROLE.PARTNER) {
+            update.previousRole = target.role;
+        }
+    }
+    else {
+        // Demoting an admin back to a normal user: restore their original role if we
+        // remembered it, and clear any granted permissions.
+        update.role =
+            target.previousRole === user_1.ENUM_USER_ROLE.PARTNER ||
+                target.previousRole === user_1.ENUM_USER_ROLE.PRO
+                ? target.previousRole
+                : role;
+        update.permissions = [];
+        update.previousRole = null;
+    }
+    const result = yield user_model_1.User.findByIdAndUpdate(id, update, { new: true });
+    return result;
+});
+/** Set the granular permission keys on an admin. Validated against the grantable list. */
+const setAdminPermissions = (id, permissions) => __awaiter(void 0, void 0, void 0, function* () {
+    if (!Array.isArray(permissions)) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'permissions must be an array');
+    }
+    const invalid = permissions.filter((p) => !user_constant_1.GRANTABLE_PERMISSIONS.includes(p));
+    if (invalid.length) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, `Invalid permission(s): ${invalid.join(', ')}`);
+    }
+    const target = yield user_model_1.User.findById(id).select('role');
+    if (!target) {
+        throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'User not found');
+    }
+    if (target.role !== user_1.ENUM_USER_ROLE.ADMIN) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Permissions can only be set on an admin');
+    }
+    const result = yield user_model_1.User.findByIdAndUpdate(id, { permissions: Array.from(new Set(permissions)) }, { new: true });
+    return result;
+});
+/**
+ * Self-serve super-admin creation via the setup link. Gated by a shared secret
+ * (config.super_admin.setup_key). Creates a new super_admin, or promotes an
+ * existing account to super_admin (and resets its password if supplied).
+ */
+const superSetup = (payload) => __awaiter(void 0, void 0, void 0, function* () {
+    const { email, password, setupKey } = payload || {};
+    if (!setupKey || setupKey !== config_1.default.super_admin.setup_key) {
+        throw new ApiError_1.default(http_status_1.default.UNAUTHORIZED, 'Invalid setup key');
+    }
+    if (!email || !password) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Email and password are required');
+    }
+    if (String(password).length < 6) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Password must be at least 6 characters');
+    }
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const existing = yield user_model_1.User.findOne({ email: normalizedEmail }).select('_id password');
+    if (existing) {
+        // Promote + reset password (pre-save hook re-hashes it).
+        existing.role = user_1.ENUM_USER_ROLE.SUPER_ADMIN;
+        existing.status = 'approved';
+        existing.permissions = [];
+        existing.password = password;
+        existing.isGoogleUser = false;
+        yield existing.save();
+        return { email: normalizedEmail, created: false };
+    }
+    yield user_model_1.User.create({
+        email: normalizedEmail,
+        password,
+        role: user_1.ENUM_USER_ROLE.SUPER_ADMIN,
+        status: 'approved',
+        permissions: [],
+    });
+    return { email: normalizedEmail, created: true };
+});
+/**
+ * Idempotent boot seed: guarantee the fixed super admin exists. Safe to call on
+ * every server start — creates it once, then leaves it alone.
+ */
+const ensureSuperAdmin = () => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const email = config_1.default.super_admin.email.trim().toLowerCase();
+        const existing = yield user_model_1.User.findOne({ email }).select('_id role');
+        if (!existing) {
+            yield user_model_1.User.create({
+                email,
+                password: config_1.default.super_admin.password,
+                role: user_1.ENUM_USER_ROLE.SUPER_ADMIN,
+                status: 'approved',
+                permissions: [],
+            });
+            // eslint-disable-next-line no-console
+            console.log(`Seeded fixed super admin: ${email}`);
+        }
+        else if (existing.role !== user_1.ENUM_USER_ROLE.SUPER_ADMIN) {
+            yield user_model_1.User.findByIdAndUpdate(existing._id, {
+                role: user_1.ENUM_USER_ROLE.SUPER_ADMIN,
+                status: 'approved',
+            });
+            // eslint-disable-next-line no-console
+            console.log(`Promoted existing account to super admin: ${email}`);
+        }
+    }
+    catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('ensureSuperAdmin failed:', err);
+    }
+});
 exports.UserService = {
     createUser,
     updateUser,
+    getAdmins,
+    updateUserRole,
+    setAdminPermissions,
+    superSetup,
+    ensureSuperAdmin,
     getUserProfile,
     updateOrCreateUserPersonalInformation,
     updateOrCreateUserProfessionalInformation,
