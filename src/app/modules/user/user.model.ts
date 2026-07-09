@@ -8,8 +8,19 @@ const UserSchema = new Schema<IUser, UserModel>(
   {
     role: {
       type: String,
-      enum: ['pro', 'partner'],
+      enum: ['pro', 'partner', 'admin', 'super_admin'],
       required: true,
+    },
+    // Super Admin panel: granular per-admin permission keys. Empty/missing on an
+    // existing admin => full legacy access (see user.constant.ts).
+    permissions: {
+      type: [String],
+      default: [],
+    },
+    // Super Admin panel: the role this account had before being promoted to
+    // admin, so "remove admin access" restores it (caregiver vs agency).
+    previousRole: {
+      type: String,
     },
     password: {
       type: String,
@@ -79,7 +90,7 @@ UserSchema.statics.isUserExist = async function (
 ): Promise<IUser | null> {
   return await User.findOne(
     { email, isGoogleUser: false },
-    { email: 1, password: 1, role: 1, _id: 1, status: 1 }
+    { email: 1, password: 1, role: 1, _id: 1, status: 1, permissions: 1 }
   );
 };
 

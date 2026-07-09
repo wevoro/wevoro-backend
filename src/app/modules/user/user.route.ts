@@ -12,6 +12,28 @@ const upload = multer({ storage });
 router.post('/signup', UserController.createUser);
 router.post('/waitlist', UserController.joinWaitlist);
 
+// ---- Super Admin panel ----
+// Public self-serve super-admin setup — protected by a shared setup key in the
+// request body (validated server-side); no session required.
+router.post('/super-setup', UserController.superSetup);
+
+// Admin management — super_admin only.
+router.get(
+  '/admins',
+  auth(ENUM_USER_ROLE.SUPER_ADMIN),
+  UserController.getAdmins
+);
+router.patch(
+  '/role/:id',
+  auth(ENUM_USER_ROLE.SUPER_ADMIN),
+  UserController.updateUserRole
+);
+router.patch(
+  '/permissions/:id',
+  auth(ENUM_USER_ROLE.SUPER_ADMIN),
+  UserController.setAdminPermissions
+);
+
 router.patch(
   '/personal-information',
   auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.PRO, ENUM_USER_ROLE.ADMIN),

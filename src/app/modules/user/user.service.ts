@@ -24,6 +24,7 @@ import sharp from 'sharp';
 import { Offer } from '../offer/offer.model';
 import { PartnerVerification } from '../partner-verification/partner-verification.model';
 import { CredentialingService } from '../credentialing/credentialing.service';
+import { GRANTABLE_PERMISSIONS } from './user.constant';
 import crypto from 'crypto';
 cloudinary.v2.config({
   cloud_name: config.cloudinary.cloud_name,
@@ -52,6 +53,17 @@ const joinWaitlist = async (email: string) => {
 };
 
 const createUser = async (user: Partial<IUser>): Promise<IUser | null> => {
+  // Prevent privilege escalation: public signup may only create pro/partner
+  // accounts. Admin / super_admin are created only via the guarded super-admin
+  // flows (never through this mass-assignment path).
+  if (
+    user.role !== ENUM_USER_ROLE.PRO &&
+    user.role !== ENUM_USER_ROLE.PARTNER
+  ) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Invalid role');
+  }
+  delete (user as any).permissions;
+
   const existingUser = await User.isUserExist(user.email as string);
   if (existingUser) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'User already exists');
@@ -162,6 +174,13 @@ const updateUser = async (
   // file: any
 ): Promise<IUser | null> => {
   console.log({ payload });
+  // Security: role & permissions can ONLY be changed through the dedicated
+  // super-admin-guarded endpoints (updateUserRole / setAdminPermissions), never
+  // through this generic admin update. Strip them so a plain admin cannot
+  // escalate anyone (including themselves) via PATCH /user/update/:id.
+  delete payload.role;
+  delete payload.permissions;
+
   if (payload.status === 'removed') {
     const user = await User.findById(id);
     if (!user) {
@@ -1161,9 +1180,226 @@ const updateGchexsStatus = async (
   return result;
 };
 
+// ============================================================================
+// Super Admin panel — admin management (all callers are super_admin-guarded at
+// the route layer). Role & permission mutations live here ONLY, never in the
+// generic updateUser.
+// ============================================================================
+
+/** List every admin / super_admin with their permissions. */
+const getAdmins = async (): Promise<any[]> => {
+  const admins = await User.find({
+    role: { $in: [ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN] },
+  })
+    .select('email role permissions previousRole status createdAt lastLoginAt')
+    .lean();
+
+  const withNames = await Promise.all(
+    admins.map(async (a: any) => {
+      const info = await PersonalInfo.findOne({ user: a._id })
+        .select('firstName lastName image companyName')
+        .lean();
+      const name = info
+        ? `${(info as any).firstName || ''} ${(info as any).lastName || ''}`.trim()
+        : '';
+      return {
+        ...a,
+        name: name || (info as any)?.companyName || a.email,
+        image: (info as any)?.image || null,
+      };
+    })
+  );
+  return withNames;
+};
+
+/**
+ * Promote a normal user to admin, or demote an admin back to a normal role.
+ * Only role — nothing else — is touched. Super admins can never be created or
+ * demoted here (that path is the guarded super-setup / seed only).
+ */
+const updateUserRole = async (
+  id: string,
+  role: string,
+  actorId: string
+): Promise<IUser | null> => {
+  const allowedTargets = [
+    ENUM_USER_ROLE.ADMIN,
+    ENUM_USER_ROLE.PRO,
+    ENUM_USER_ROLE.PARTNER,
+  ] as string[];
+  if (!allowedTargets.includes(role)) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Invalid target role');
+  }
+
+  const target = await User.findById(id).select('role previousRole email');
+  if (!target) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'User not found');
+  }
+
+  // A super admin can only be changed via the guarded super-admin flow.
+  if (target.role === ENUM_USER_ROLE.SUPER_ADMIN) {
+    throw new ApiError(
+      httpStatus.FORBIDDEN,
+      'A super admin cannot be modified here'
+    );
+  }
+
+  // Never let a super admin lock themselves out.
+  if (actorId && actorId.toString() === id.toString()) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'You cannot change your own role');
+  }
+
+  const update: any = { role };
+  if (role === ENUM_USER_ROLE.ADMIN) {
+    // Promoting: remember where they came from so demote is lossless.
+    if (
+      target.role === ENUM_USER_ROLE.PRO ||
+      target.role === ENUM_USER_ROLE.PARTNER
+    ) {
+      update.previousRole = target.role;
+    }
+  } else {
+    // Demoting an admin back to a normal user: restore their original role if we
+    // remembered it, and clear any granted permissions.
+    update.role =
+      (target as any).previousRole === ENUM_USER_ROLE.PARTNER ||
+      (target as any).previousRole === ENUM_USER_ROLE.PRO
+        ? (target as any).previousRole
+        : role;
+    update.permissions = [];
+    update.previousRole = null;
+  }
+
+  const result = await User.findByIdAndUpdate(id, update, { new: true });
+  return result;
+};
+
+/** Set the granular permission keys on an admin. Validated against the grantable list. */
+const setAdminPermissions = async (
+  id: string,
+  permissions: string[]
+): Promise<IUser | null> => {
+  if (!Array.isArray(permissions)) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'permissions must be an array');
+  }
+  const invalid = permissions.filter((p) => !GRANTABLE_PERMISSIONS.includes(p));
+  if (invalid.length) {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      `Invalid permission(s): ${invalid.join(', ')}`
+    );
+  }
+
+  const target = await User.findById(id).select('role');
+  if (!target) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'User not found');
+  }
+  if (target.role !== ENUM_USER_ROLE.ADMIN) {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      'Permissions can only be set on an admin'
+    );
+  }
+
+  const result = await User.findByIdAndUpdate(
+    id,
+    { permissions: Array.from(new Set(permissions)) },
+    { new: true }
+  );
+  return result;
+};
+
+/**
+ * Self-serve super-admin creation via the setup link. Gated by a shared secret
+ * (config.super_admin.setup_key). Creates a new super_admin, or promotes an
+ * existing account to super_admin (and resets its password if supplied).
+ */
+const superSetup = async (payload: {
+  email: string;
+  password: string;
+  setupKey: string;
+}): Promise<{ email: string; created: boolean }> => {
+  const { email, password, setupKey } = payload || ({} as any);
+
+  if (!setupKey || setupKey !== config.super_admin.setup_key) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, 'Invalid setup key');
+  }
+  if (!email || !password) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Email and password are required');
+  }
+  if (String(password).length < 6) {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      'Password must be at least 6 characters'
+    );
+  }
+
+  const normalizedEmail = String(email).trim().toLowerCase();
+
+  const existing = await User.findOne({ email: normalizedEmail }).select(
+    '_id password'
+  );
+  if (existing) {
+    // Promote + reset password (pre-save hook re-hashes it).
+    existing.role = ENUM_USER_ROLE.SUPER_ADMIN;
+    existing.status = 'approved';
+    (existing as any).permissions = [];
+    (existing as any).password = password;
+    (existing as any).isGoogleUser = false;
+    await existing.save();
+    return { email: normalizedEmail, created: false };
+  }
+
+  await User.create({
+    email: normalizedEmail,
+    password,
+    role: ENUM_USER_ROLE.SUPER_ADMIN,
+    status: 'approved',
+    permissions: [],
+  });
+  return { email: normalizedEmail, created: true };
+};
+
+/**
+ * Idempotent boot seed: guarantee the fixed super admin exists. Safe to call on
+ * every server start — creates it once, then leaves it alone.
+ */
+const ensureSuperAdmin = async (): Promise<void> => {
+  try {
+    const email = config.super_admin.email.trim().toLowerCase();
+    const existing = await User.findOne({ email }).select('_id role');
+    if (!existing) {
+      await User.create({
+        email,
+        password: config.super_admin.password,
+        role: ENUM_USER_ROLE.SUPER_ADMIN,
+        status: 'approved',
+        permissions: [],
+      });
+      // eslint-disable-next-line no-console
+      console.log(`Seeded fixed super admin: ${email}`);
+    } else if (existing.role !== ENUM_USER_ROLE.SUPER_ADMIN) {
+      await User.findByIdAndUpdate(existing._id, {
+        role: ENUM_USER_ROLE.SUPER_ADMIN,
+        status: 'approved',
+      });
+      // eslint-disable-next-line no-console
+      console.log(`Promoted existing account to super admin: ${email}`);
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('ensureSuperAdmin failed:', err);
+  }
+};
+
 export const UserService = {
   createUser,
   updateUser,
+  getAdmins,
+  updateUserRole,
+  setAdminPermissions,
+  superSetup,
+  ensureSuperAdmin,
   getUserProfile,
   updateOrCreateUserPersonalInformation,
   updateOrCreateUserProfessionalInformation,

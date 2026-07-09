@@ -7,6 +7,7 @@ import config from './config/index';
 
 
 import { startCredentialNotificationCron } from './app/modules/notification/credential-notification.service';
+import { UserService } from './app/modules/user/user.service';
 
 process.on('uncaughtException', error => {
   console.error(error);
@@ -70,6 +71,8 @@ async function bootstrap() {
   // SCRUM-65: Start credential expiration notification cron
   if (mongoose.connection.readyState === 1) {
     startCredentialNotificationCron();
+    // Super Admin panel: guarantee the fixed super admin exists.
+    await UserService.ensureSuperAdmin();
   }
 
   process.on('unhandledRejection', error => {
