@@ -299,9 +299,9 @@ const getUserProfile = (user) => __awaiter(void 0, void 0, void 0, function* () 
     let jobConversionPData = 0;
     if (role === user_1.ENUM_USER_ROLE.PRO) {
         const professionalInfo = yield professional_info_model_1.ProfessionalInfo.findOne({ user: _id });
-        const driverLicense = yield documents_model_1.Documents.findOne({ user: _id, documentType: 'driver_license' });
-        const tbTest = yield documents_model_1.Documents.findOne({ user: _id, documentType: 'tb_tests' });
-        completionPercentage = (0, calculateProCompletion_1.calculateProCompletion)(personalInfo, professionalInfo, driverLicense, tbTest);
+        // SCRUM-93: score every required credential, not just driver_license/tb_tests.
+        const documents = yield documents_model_1.Documents.find({ user: _id });
+        completionPercentage = (0, calculateProCompletion_1.calculateProCompletion)(personalInfo, professionalInfo, documents);
     }
     if (role === user_1.ENUM_USER_ROLE.PARTNER) {
         const fields = [
