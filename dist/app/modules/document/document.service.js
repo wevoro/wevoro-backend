@@ -51,6 +51,7 @@ const bunny_upload_1 = require("../../../helpers/bunny-upload");
 const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
 const http_status_1 = __importDefault(require("http-status"));
 const credential_notification_service_1 = require("../notification/credential-notification.service");
+const credentials_1 = require("../../../constants/credentials");
 const uploadDocument = (file, payload, documentId, userId) => __awaiter(void 0, void 0, void 0, function* () {
     // Check if this is an update or create operation
     const isUpdate = !!documentId;
@@ -172,13 +173,16 @@ const getCredentialStatus = (userId) => __awaiter(void 0, void 0, void 0, functi
     const { ProfessionalInfo } = yield Promise.resolve().then(() => __importStar(require('../user/professional-info.model')));
     const profInfo = yield ProfessionalInfo.findOne({ user: userId }).lean();
     const role = (profInfo === null || profInfo === void 0 ? void 0 : profInfo.role) === 'PCA' ? 'PCA' : 'CNA';
-    const REQUIRED_CREDENTIALS = [
-        { key: 'certifications', label: `${role} Certificate`, category: 'non_medical' },
-        { key: 'driver_license', label: "Driver's License", category: 'non_medical' },
-        { key: 'auto_insurance', label: 'Auto Insurance', category: 'non_medical' },
-        { key: 'cpr_test', label: 'CPR Test', category: 'medical' },
-        { key: 'tb_tests', label: 'TB Test', category: 'medical' },
-    ];
+    // SCRUM-93: keys come from the shared required list so this view and
+    // calculateProCompletion can never disagree about what "required" means.
+    const CREDENTIAL_META = {
+        certifications: { label: `${role} Certificate`, category: 'non_medical' },
+        driver_license: { label: "Driver's License", category: 'non_medical' },
+        auto_insurance: { label: 'Auto Insurance', category: 'non_medical' },
+        cpr_test: { label: 'CPR Test', category: 'medical' },
+        tb_tests: { label: 'TB Test', category: 'medical' },
+    };
+    const REQUIRED_CREDENTIALS = credentials_1.REQUIRED_CREDENTIAL_KEYS.map(key => (Object.assign({ key }, CREDENTIAL_META[key])));
     const documents = yield documents_model_1.Documents.find({ user: userId });
     const docsByType = {};
     documents.forEach((doc) => {

@@ -3,6 +3,7 @@ import { uploadFile } from '../../../helpers/bunny-upload';
 import ApiError from '../../../errors/ApiError';
 import httpStatus from 'http-status';
 import { fireRejectionNotification } from '../notification/credential-notification.service';
+import { REQUIRED_CREDENTIAL_KEYS } from '../../../constants/credentials';
 
 type DocumentPayload = {
   category: string;
@@ -171,13 +172,19 @@ const getCredentialStatus = async (userId: string): Promise<any> => {
   const profInfo: any = await ProfessionalInfo.findOne({ user: userId }).lean();
   const role: 'CNA' | 'PCA' = profInfo?.role === 'PCA' ? 'PCA' : 'CNA';
 
-  const REQUIRED_CREDENTIALS = [
-    { key: 'certifications', label: `${role} Certificate`, category: 'non_medical' },
-    { key: 'driver_license', label: "Driver's License", category: 'non_medical' },
-    { key: 'auto_insurance', label: 'Auto Insurance', category: 'non_medical' },
-    { key: 'cpr_test', label: 'CPR Test', category: 'medical' },
-    { key: 'tb_tests', label: 'TB Test', category: 'medical' },
-  ];
+  // SCRUM-93: keys come from the shared required list so this view and
+  // calculateProCompletion can never disagree about what "required" means.
+  const CREDENTIAL_META: Record<string, { label: string; category: string }> = {
+    certifications: { label: `${role} Certificate`, category: 'non_medical' },
+    driver_license: { label: "Driver's License", category: 'non_medical' },
+    auto_insurance: { label: 'Auto Insurance', category: 'non_medical' },
+    cpr_test: { label: 'CPR Test', category: 'medical' },
+    tb_tests: { label: 'TB Test', category: 'medical' },
+  };
+  const REQUIRED_CREDENTIALS = REQUIRED_CREDENTIAL_KEYS.map(key => ({
+    key,
+    ...CREDENTIAL_META[key],
+  }));
 
   const documents = await Documents.find({ user: userId });
   const docsByType: Record<string, any> = {};

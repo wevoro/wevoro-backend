@@ -386,14 +386,13 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
 
   if (role === ENUM_USER_ROLE.PRO) {
     const professionalInfo = await ProfessionalInfo.findOne({ user: _id });
-    const driverLicense = await Documents.findOne({ user: _id, documentType: 'driver_license' });
-    const tbTest = await Documents.findOne({ user: _id, documentType: 'tb_tests' });
+    // SCRUM-93: score every required credential, not just driver_license/tb_tests.
+    const documents = await Documents.find({ user: _id });
 
     completionPercentage = calculateProCompletion(
       personalInfo,
       professionalInfo,
-      driverLicense,
-      tbTest
+      documents
     );
   }
   if (role === ENUM_USER_ROLE.PARTNER) {

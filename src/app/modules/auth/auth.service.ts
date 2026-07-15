@@ -92,14 +92,13 @@ const loginUser = async (payload: ILoginUser): Promise<ILoginUserResponse> => {
   const personalInfo = await PersonalInfo.findOne({ user: _id });
   if (role === ENUM_USER_ROLE.PRO) {
     const professionalInfo = await ProfessionalInfo.findOne({ user: _id });
-    const driverLicense = await Documents.findOne({ user: _id, documentType: 'driver_license' });
-    const tbTest = await Documents.findOne({ user: _id, documentType: 'tb_tests' });
+    // SCRUM-93: score every required credential, not just driver_license/tb_tests.
+    const documents = await Documents.find({ user: _id });
 
     returnData.completionPercentage = calculateProCompletion(
       personalInfo,
       professionalInfo,
-      driverLicense,
-      tbTest
+      documents
     );
   }
 
@@ -188,14 +187,13 @@ const loginWithGoogle = async (
   const personalInfo = await PersonalInfo.findOne({ user: _id });
   if (role === ENUM_USER_ROLE.PRO) {
     const professionalInfo = await ProfessionalInfo.findOne({ user: _id });
-    const driverLicense = await Documents.findOne({ user: _id, documentType: 'driver_license' });
-    const tbTest = await Documents.findOne({ user: _id, documentType: 'tb_tests' });
+    // SCRUM-93: score every required credential, not just driver_license/tb_tests.
+    const documents = await Documents.find({ user: _id });
 
     returnData.completionPercentage = calculateProCompletion(
       personalInfo,
       professionalInfo,
-      driverLicense,
-      tbTest
+      documents
     );
   }
 
