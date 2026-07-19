@@ -55,6 +55,16 @@ const UserSchema = new mongoose_1.Schema({
         enum: ['approved', 'pending', 'rejected', 'blocked', 'in-review'],
         default: 'pending',
     },
+    /**
+     * The status the user held immediately before being blocked, so unblocking
+     * can put them back exactly where they were. Without it, unblocking would
+     * have to guess — either wrongly promoting someone who was never verified,
+     * or demoting a verified caregiver back to pending review.
+     */
+    previousStatus: {
+        type: String,
+        enum: ['approved', 'pending', 'rejected', 'in-review'],
+    },
     isGoogleUser: {
         type: Boolean,
         default: false,

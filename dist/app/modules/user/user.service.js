@@ -164,6 +164,24 @@ const updateUser = (payload, id
         }
         yield deleteAccount(user);
     }
+    // Blocking is reversible: remember where the user was so Unblock can put them
+    // back, rather than guessing a status and either over- or under-promoting them.
+    if (payload.status === 'blocked') {
+        const current = yield user_model_1.User.findById(id).select('status');
+        if ((current === null || current === void 0 ? void 0 : current.status) && current.status !== 'blocked') {
+            payload.previousStatus = current.status;
+        }
+    }
+    // 'unblocked' is a client-side intent, not a stored status — resolve it to the
+    // status the user held before the block (falling back to pending re-review).
+    if (payload.status === 'unblocked') {
+        const current = yield user_model_1.User.findById(id).select('status previousStatus');
+        if (!current) {
+            throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'User not found');
+        }
+        payload.status = current.previousStatus || 'pending';
+        payload.previousStatus = null;
+    }
     const result = yield user_model_1.User.findByIdAndUpdate(id, payload, {
         new: true,
     });
@@ -173,6 +191,9 @@ const updateUser = (payload, id
             block: note
                 ? `<p style="font-size: 16px; color: red;">You have been <strong>blocked</strong> from the platform. <br/> <br/> <strong>Note:</strong> ${note}</p>`
                 : `<p style="font-size: 16px; color: red;">You have been <strong>blocked</strong> from the platform.</p>`,
+            unblock: note
+                ? `<p style="font-size: 16px; color: green;">Your account has been <strong>unblocked</strong>. You can log in again. <br/> <br/> <strong>Note:</strong> ${note}</p>`
+                : `<p style="font-size: 16px; color: green;">Your account has been <strong>unblocked</strong>. You can log in again.</p>`,
             remove: note
                 ? `<p style="font-size: 16px; color: red;">You have been <strong>removed</strong> from the platform. <br/> <br/> <strong>Note:</strong> ${note}</p>`
                 : `<p style="font-size: 16px; color: red;">You have been <strong>removed</strong> from the platform.</p>`,

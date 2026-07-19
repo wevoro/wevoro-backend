@@ -189,6 +189,26 @@ const updateUser = async (
     await deleteAccount(user);
   }
 
+  // Blocking is reversible: remember where the user was so Unblock can put them
+  // back, rather than guessing a status and either over- or under-promoting them.
+  if (payload.status === 'blocked') {
+    const current = await User.findById(id).select('status');
+    if (current?.status && current.status !== 'blocked') {
+      payload.previousStatus = current.status;
+    }
+  }
+
+  // 'unblocked' is a client-side intent, not a stored status — resolve it to the
+  // status the user held before the block (falling back to pending re-review).
+  if (payload.status === 'unblocked') {
+    const current = await User.findById(id).select('status previousStatus');
+    if (!current) {
+      throw new ApiError(httpStatus.NOT_FOUND, 'User not found');
+    }
+    payload.status = current.previousStatus || 'pending';
+    payload.previousStatus = null;
+  }
+
   const result = await User.findByIdAndUpdate(id, payload, {
     new: true,
   });
@@ -199,6 +219,9 @@ const updateUser = async (
       block: note
         ? `<p style="font-size: 16px; color: red;">You have been <strong>blocked</strong> from the platform. <br/> <br/> <strong>Note:</strong> ${note}</p>`
         : `<p style="font-size: 16px; color: red;">You have been <strong>blocked</strong> from the platform.</p>`,
+      unblock: note
+        ? `<p style="font-size: 16px; color: green;">Your account has been <strong>unblocked</strong>. You can log in again. <br/> <br/> <strong>Note:</strong> ${note}</p>`
+        : `<p style="font-size: 16px; color: green;">Your account has been <strong>unblocked</strong>. You can log in again.</p>`,
       remove: note
         ? `<p style="font-size: 16px; color: red;">You have been <strong>removed</strong> from the platform. <br/> <br/> <strong>Note:</strong> ${note}</p>`
         : `<p style="font-size: 16px; color: red;">You have been <strong>removed</strong> from the platform.</p>`,
