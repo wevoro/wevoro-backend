@@ -218,21 +218,48 @@ const updateUser = async (
         email = result.email;
       }
 
-      await Notification.create({
-        user: id,
-        message,
-      });
+      // Notifying the user must never undo the admin's action. The status change
+      // above has already been written, so a failing mail server (or a user with
+      // no email on file) used to surface as "Something went wrong" in the admin
+      // panel even though the block/removal had in fact succeeded — which read as
+      // "I can't make changes in Admin". Notification is best-effort from here:
+      // failures are logged for follow-up, not thrown.
+      // NOTE for 'removed': deleteAccount() above already deleted the user and
+      // their notifications, so skip the in-app record and only send the email.
+      if (payload.status !== 'removed') {
+        try {
+          await Notification.create({ user: id, message });
+        } catch (err) {
+          console.error(
+            `[updateUser] in-app notification failed for user ${id} (${alertType}):`,
+            err
+          );
+        }
+      }
 
-      await sendEmail(
-        email,
-        'Notification',
-        `
+      if (email) {
+        try {
+          await sendEmail(
+            email,
+            'Notification',
+            `
         <div>
           ${message}
           <p>Thank you</p>
         </div>
         `
-      );
+          );
+        } catch (err) {
+          console.error(
+            `[updateUser] notification email to ${email} failed for ${alertType}:`,
+            err
+          );
+        }
+      } else {
+        console.error(
+          `[updateUser] no email on file for user ${id}; skipped ${alertType} notification`
+        );
+      }
     }
   }
 
@@ -903,21 +930,36 @@ const createNotification = async (payload: any): Promise<any> => {
   const user = await User.findById(payload.user);
   const email = (user?.email as string) || payload.email;
 
-  console.log(email, user, payload);
+  // Save the in-app notification FIRST, then email best-effort. This used to
+  // email before saving and let failures throw, so a mail-server outage meant
+  // the admin's message was never recorded at all and the panel reported a
+  // generic failure.
+  const result = await Notification.create(payload);
 
-  await sendEmail(
-    email,
-    'Notification',
-    `
+  if (email) {
+    try {
+      await sendEmail(
+        email,
+        'Notification',
+        `
     <div>
     <p>New notification: <strong>${payload.message}</strong></p>
 
     <p>Thank you</p>
     </div>
     `
-  );
-
-  const result = await Notification.create(payload);
+      );
+    } catch (err) {
+      console.error(
+        `[createNotification] email to ${email} failed; in-app notification was still saved:`,
+        err
+      );
+    }
+  } else {
+    console.error(
+      `[createNotification] no email on file for user ${payload.user}; in-app notification saved only`
+    );
+  }
 
   return result;
 };
