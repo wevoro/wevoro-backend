@@ -15,6 +15,8 @@ export type IUser = {
   image: string;
   isGoogleUser: boolean;
   status: string;
+  /** Status held before a block, restored on unblock. */
+  previousStatus?: string | null;
   otp: string;
   coverImage: string;
   otpExpiry: Date;
