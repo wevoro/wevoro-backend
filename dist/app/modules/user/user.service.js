@@ -1085,14 +1085,16 @@ const updateUserRole = (id, role, actorId) => __awaiter(void 0, void 0, void 0, 
     if (!target) {
         throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'User not found');
     }
-    // A super admin can only be changed via the guarded super-admin flow.
-    if (target.role === user_1.ENUM_USER_ROLE.SUPER_ADMIN) {
-        throw new ApiError_1.default(http_status_1.default.FORBIDDEN, 'A super admin cannot be modified here');
-    }
-    // Never let a super admin lock themselves out.
+    // Never let anyone change their own role. Only super admins reach this
+    // function (the route is super-admin-guarded), so this self-check is also
+    // what guarantees at least one super admin always remains: a super admin can
+    // remove other super admins but never themselves.
     if (actorId && actorId.toString() === id.toString()) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'You cannot change your own role');
     }
+    // A super admin removing another super admin is intentional (client request).
+    // It falls through to the demote branch below, which clears permissions and
+    // returns them to a normal account.
     const update = { role };
     if (role === user_1.ENUM_USER_ROLE.ADMIN) {
         // Promoting: remember where they came from so demote is lossless.
