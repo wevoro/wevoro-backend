@@ -113,6 +113,10 @@ const loginWithGoogle = (payload) => __awaiter(void 0, void 0, void 0, function*
     const returnData = {
         accessToken,
         refreshToken,
+        // `user` is assigned only in the !isGoogleUser branch above, i.e. only when
+        // this call actually created the account. Lets the client distinguish a
+        // Google signup from a Google login for analytics.
+        isNewUser: !!user,
     };
     const personalInfo = yield personal_info_model_1.PersonalInfo.findOne({ user: _id });
     if (role === user_1.ENUM_USER_ROLE.PRO) {

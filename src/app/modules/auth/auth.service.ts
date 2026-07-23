@@ -182,6 +182,10 @@ const loginWithGoogle = async (
   const returnData: ILoginUserResponse = {
     accessToken,
     refreshToken,
+    // `user` is assigned only in the !isGoogleUser branch above, i.e. only when
+    // this call actually created the account. Lets the client distinguish a
+    // Google signup from a Google login for analytics.
+    isNewUser: !!user,
   };
 
   const personalInfo = await PersonalInfo.findOne({ user: _id });
