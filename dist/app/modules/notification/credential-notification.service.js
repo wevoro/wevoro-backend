@@ -170,7 +170,7 @@ exports.evaluateCredentialExpirations = evaluateCredentialExpirations;
 const fireRejectionNotification = (params) => __awaiter(void 0, void 0, void 0, function* () {
     const { caregiverId, credentialDocumentId, credentialName, rejectionReason } = params;
     const reason = rejectionReason || 'Review required';
-    const message = `Your <strong>${credentialName}</strong> needs attention: ${reason}. Please re-upload to continue verification.`;
+    const message = `Your <strong>${credentialName}</strong> needs attention: ${reason}. Please re-upload to continue confirmation.`;
     yield notification_model_1.Notification.create({
         user: caregiverId,
         message,
