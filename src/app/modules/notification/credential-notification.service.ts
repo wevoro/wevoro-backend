@@ -195,7 +195,7 @@ export const fireRejectionNotification = async (params: {
   const { caregiverId, credentialDocumentId, credentialName, rejectionReason } = params;
 
   const reason = rejectionReason || 'Review required';
-  const message = `Your <strong>${credentialName}</strong> needs attention: ${reason}. Please re-upload to continue verification.`;
+  const message = `Your <strong>${credentialName}</strong> needs attention: ${reason}. Please re-upload to continue confirmation.`;
 
   await Notification.create({
     user: caregiverId,
