@@ -135,6 +135,18 @@ const reviewDocument = (documentId, payload) => __awaiter(void 0, void 0, void 0
         updateData.issuingOrganization = undefined;
     }
     const result = yield documents_model_1.Documents.findByIdAndUpdate(documentId, updateData, { new: true });
+    // SCRUM-102 renewal reset: when a credential is (re-)approved with a new
+    // expiration date, clear its prior expiration notifications so the next
+    // lifecycle fires fresh. Without this, the dedup keyed on
+    // (user, credentialDocumentId, type) permanently suppresses re-notification
+    // after a renewal, since the same document _id is reused.
+    if (reviewStatus === 'approved' && result) {
+        const { Notification } = yield Promise.resolve().then(() => __importStar(require('../user/notification.model')));
+        yield Notification.deleteMany({
+            credentialDocumentId: documentId,
+            type: { $in: ['credential_yellow', 'credential_red', 'credential_expired'] },
+        });
+    }
     // SCRUM-65: Fire rejection notification in real-time
     if (reviewStatus === 'rejected' && result) {
         // Resolve role-driven label for the certificate row
