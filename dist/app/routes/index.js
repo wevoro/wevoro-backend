@@ -12,6 +12,7 @@ const offer_route_1 = require("../modules/offer/offer.route");
 const partner_verification_route_1 = require("../modules/partner-verification/partner-verification.route");
 const shift_route_1 = require("../modules/shift/shift.route");
 const credentialing_route_1 = require("../modules/credentialing/credentialing.route");
+const credential_notification_route_1 = require("../modules/notification/credential-notification.route");
 const router = express_1.default.Router();
 const moduleRoutes = [
     {
@@ -45,6 +46,10 @@ const moduleRoutes = [
     {
         path: '/credentialing',
         route: credentialing_route_1.CredentialingRoutes,
+    },
+    {
+        path: '/notification',
+        route: credential_notification_route_1.CredentialNotificationRoutes,
     },
 ];
 moduleRoutes.forEach(route => router.use(route.path, route.route));

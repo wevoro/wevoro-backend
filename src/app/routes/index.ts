@@ -8,6 +8,7 @@ import { OfferRoutes } from '../modules/offer/offer.route';
 import { PartnerVerificationRoutes } from '../modules/partner-verification/partner-verification.route';
 import { ShiftRoutes } from '../modules/shift/shift.route';
 import { CredentialingRoutes } from '../modules/credentialing/credentialing.route';
+import { CredentialNotificationRoutes } from '../modules/notification/credential-notification.route';
 
 const router = express.Router();
 
@@ -43,6 +44,10 @@ const moduleRoutes = [
   {
     path: '/credentialing',
     route: CredentialingRoutes,
+  },
+  {
+    path: '/notification',
+    route: CredentialNotificationRoutes,
   },
 ];
 
