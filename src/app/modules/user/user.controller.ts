@@ -81,6 +81,26 @@ const updateOrCreateUserPersonalInformation = catchAsync(
   }
 );
 
+// SCRUM-99 (Phase 2): passwordless agency completes the 4-field account form.
+// Body is plain JSON (no file upload), the caller is the authenticated agency.
+const completeAgencyProfile = catchAsync(
+  async (req: Request, res: Response) => {
+    const userId = req.user?._id;
+
+    const result = await UserService.completeAgencyProfile(
+      userId as string,
+      req.body
+    );
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: 'Agency account submitted for verification!',
+      data: result,
+    });
+  }
+);
+
 const updateOrCreateUserProfessionalInformation = catchAsync(
   async (req: Request, res: Response) => {
     const data = JSON.parse(req.body.data || '{}');
@@ -388,6 +408,7 @@ export const UserController = {
   superSetup,
   getUserProfile,
   updateOrCreateUserPersonalInformation,
+  completeAgencyProfile,
   updateOrCreateUserProfessionalInformation,
 
   getUserById,

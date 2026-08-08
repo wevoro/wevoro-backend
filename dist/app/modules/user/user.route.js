@@ -23,6 +23,8 @@ router.get('/admins', (0, auth_1.default)(user_1.ENUM_USER_ROLE.SUPER_ADMIN), us
 router.patch('/role/:id', (0, auth_1.default)(user_1.ENUM_USER_ROLE.SUPER_ADMIN), user_controller_1.UserController.updateUserRole);
 router.patch('/permissions/:id', (0, auth_1.default)(user_1.ENUM_USER_ROLE.SUPER_ADMIN), user_controller_1.UserController.setAdminPermissions);
 router.patch('/personal-information', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.ADMIN), upload.single('image'), user_controller_1.UserController.updateOrCreateUserPersonalInformation);
+// SCRUM-99 (Phase 2): passwordless agency completion form -> Pending Verification.
+router.patch('/complete-agency-profile', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), user_controller_1.UserController.completeAgencyProfile);
 router.patch('/professional-information', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.ADMIN), upload.array(`certifications`), user_controller_1.UserController.updateOrCreateUserProfessionalInformation);
 router.patch('/update/:id', (0, auth_1.default)(user_1.ENUM_USER_ROLE.ADMIN), user_controller_1.UserController.updateUser);
 router.patch('/update-all', (0, auth_1.default)(user_1.ENUM_USER_ROLE.ADMIN), user_controller_1.UserController.updateAllUsers);

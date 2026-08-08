@@ -40,6 +40,13 @@ router.patch(
   upload.single('image'),
   UserController.updateOrCreateUserPersonalInformation
 );
+// SCRUM-99 (Phase 2): passwordless agency completion form -> Pending Verification.
+router.patch(
+  '/complete-agency-profile',
+  auth(ENUM_USER_ROLE.PARTNER),
+  UserController.completeAgencyProfile
+);
+
 router.patch(
   '/professional-information',
   auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.PRO, ENUM_USER_ROLE.ADMIN),

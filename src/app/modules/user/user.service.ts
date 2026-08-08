@@ -341,6 +341,54 @@ const updateOrCreateUserPersonalInformation = async (
   return result;
 };
 
+// SCRUM-99 (Phase 2): the simplified "Complete your agency account" step for
+// passwordless agencies. Saves the four lookup fields the admin uses to verify
+// against the Georgia Home Care Provider Registry + Secretary of State (contact
+// name, agency name, city, state) plus the CPR providers this agency accepts,
+// then advances the account from Non-confirmed (pending) to Pending Verification
+// (in-review) so it surfaces in the admin review queue. Confirmation (approved)
+// still happens only after the admin's manual lookup — that is what unlocks the
+// sensitive-credential tier (see credential-visibility.ts).
+const completeAgencyProfile = async (
+  userId: string,
+  payload: {
+    firstName?: string;
+    lastName?: string;
+    companyName?: string;
+    city?: string;
+    state?: string;
+    acceptedCprProviders?: string[];
+  }
+): Promise<any> => {
+  const { firstName, lastName, companyName, city, state, acceptedCprProviders } =
+    payload || {};
+
+  const set: Record<string, any> = {};
+  if (firstName !== undefined) set.firstName = firstName;
+  if (lastName !== undefined) set.lastName = lastName;
+  if (companyName !== undefined) set.companyName = companyName;
+  if (city !== undefined) set['address.city'] = city;
+  if (state !== undefined) set['address.state'] = state;
+  if (Array.isArray(acceptedCprProviders)) {
+    set.acceptedCprProviders = acceptedCprProviders;
+  }
+
+  await PersonalInfo.findOneAndUpdate(
+    { user: userId },
+    { $set: set, $setOnInsert: { user: userId } },
+    { new: true, upsert: true }
+  );
+
+  // Only a Non-confirmed agency advances to Pending Verification. Never demote a
+  // Confirmed (approved) or already-in-review account from here.
+  const account = await User.findById(userId).select('role status');
+  if (account?.role === ENUM_USER_ROLE.PARTNER && account.status === 'pending') {
+    await User.findByIdAndUpdate(userId, { status: 'in-review' });
+  }
+
+  return { status: 'in-review' };
+};
+
 const updateOrCreateUserProfessionalInformation = async (
   payload: any,
   id: string,
@@ -1466,6 +1514,7 @@ export const UserService = {
   ensureSuperAdmin,
   getUserProfile,
   updateOrCreateUserPersonalInformation,
+  completeAgencyProfile,
   updateOrCreateUserProfessionalInformation,
   // updateOrCreateUserDocuments,
   getUserById,
