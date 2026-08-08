@@ -15,8 +15,43 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendEmail = sendEmail;
 const nodemailer_1 = __importDefault(require("nodemailer"));
 const config_1 = __importDefault(require("../../../config"));
+/**
+ * Sends an email.
+ *
+ * SCRUM-99: on Vercel serverless, raw SMTP (Gmail:587) is unreliable and
+ * frequently times out — which is why the OTP / login-code emails were failing
+ * ("Failed to send email"). When RESEND_API_KEY is set we send over Resend's
+ * HTTP API instead, which is serverless-friendly; otherwise we fall back to
+ * Gmail SMTP for local development.
+ */
 function sendEmail(to, subject, html) {
     return __awaiter(this, void 0, void 0, function* () {
+        const resendKey = config_1.default.resend_api_key;
+        // Preferred path: Resend HTTP API (works reliably on serverless).
+        if (resendKey) {
+            const from = config_1.default.email_from || 'WeVoro <onboarding@resend.dev>';
+            try {
+                const res = yield fetch('https://api.resend.com/emails', {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${resendKey}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ from, to, subject, html }),
+                });
+                if (!res.ok) {
+                    const body = yield res.text();
+                    console.error('Error sending email (Resend):', res.status, body);
+                    throw new Error('Failed to send email');
+                }
+                return yield res.json();
+            }
+            catch (error) {
+                console.error('Error sending email (Resend):', error);
+                throw new Error('Failed to send email');
+            }
+        }
+        // Fallback: Gmail SMTP (local dev; unreliable on serverless).
         try {
             const transporter = nodemailer_1.default.createTransport({
                 host: 'smtp.gmail.com',
@@ -31,12 +66,12 @@ function sendEmail(to, subject, html) {
                 from: config_1.default.email,
                 to,
                 subject,
-                html, // html body
+                html,
             });
             return result;
         }
         catch (error) {
-            console.error('Error sending email:', error);
+            console.error('Error sending email (SMTP):', error);
             throw new Error('Failed to send email');
         }
     });

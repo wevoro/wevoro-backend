@@ -18,6 +18,12 @@ export default {
   resetlink: process.env.RESET_PASS_UI_LINK,
   email: process.env.EMAIL,
   appPass: process.env.APP_PASS,
+  // SCRUM-99: transactional email over HTTP (Resend). Raw SMTP (Gmail:587) is
+  // unreliable on Vercel serverless — set RESEND_API_KEY to route mail through
+  // Resend's HTTP API instead. EMAIL_FROM is the verified sender (falls back to
+  // Resend's shared onboarding sender for quick testing).
+  resend_api_key: process.env.RESEND_API_KEY,
+  email_from: process.env.EMAIL_FROM,
   default_admin_pass: process.env.DEFAULT_ADMIN_PASS,
   // Super Admin panel. Optional boot-seeded super admin (only when BOTH env vars
   // are set — no hardcoded default account), and the shared secret that gates the
