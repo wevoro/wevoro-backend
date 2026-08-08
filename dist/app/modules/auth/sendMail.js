@@ -30,8 +30,6 @@ const config_1 = __importDefault(require("../../../config"));
 function sendEmail(to, subject, html) {
     return __awaiter(this, void 0, void 0, function* () {
         const resendKey = config_1.default.resend_api_key;
-        // TEMP DIAGNOSTIC (SCRUM-99): surface what the runtime actually sees.
-        const diag = `RK_env=${process.env.RESEND_API_KEY ? 'set(' + String(process.env.RESEND_API_KEY).length + ')' : 'MISSING'} cfg=${resendKey ? 'yes' : 'no'} from=${config_1.default.email_from || 'default'}`;
         // Preferred path: Resend HTTP API (works reliably on serverless).
         if (resendKey) {
             const from = config_1.default.email_from || 'WeVoro <onboarding@resend.dev>';
@@ -47,13 +45,13 @@ function sendEmail(to, subject, html) {
                 if (!res.ok) {
                     const body = yield res.text();
                     console.error('Error sending email (Resend):', res.status, body);
-                    throw new Error(`Failed to send email [${diag} Resend ${res.status} ${body.slice(0, 200)}]`);
+                    throw new Error('Failed to send email');
                 }
                 return yield res.json();
             }
             catch (error) {
                 console.error('Error sending email (Resend):', error);
-                throw new Error(`Failed to send email [${diag} Resend-exc ${(error === null || error === void 0 ? void 0 : error.message) || error}]`);
+                throw new Error('Failed to send email');
             }
         }
         // Fallback: Gmail SMTP (works locally; can be flaky on serverless).
@@ -78,7 +76,7 @@ function sendEmail(to, subject, html) {
         }
         catch (error) {
             console.error('Error sending email (SMTP):', error);
-            throw new Error(`Failed to send email [${diag} SMTP ${(error === null || error === void 0 ? void 0 : error.message) || error}]`);
+            throw new Error('Failed to send email');
         }
     });
 }
