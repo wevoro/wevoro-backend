@@ -37,7 +37,11 @@ const getUserDocuments = catchAsync(async (req: Request, res: Response) => {
   const queryUserId = req.query.userId;
   const userId = queryUserId ? queryUserId : req.user?._id;
 
-  const result = await DocumentService.getUserDocuments(userId as string);
+  // SCRUM-99: pass the requester so agencies are gated to their allowed tier.
+  const result = await DocumentService.getUserDocuments(
+    userId as string,
+    req.user?._id as string
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
