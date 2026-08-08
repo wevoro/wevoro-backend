@@ -94,10 +94,11 @@ const uploadDocument = (file, payload, documentId, userId) => __awaiter(void 0, 
     }
     return result;
 });
-const getUserDocuments = (userId) => __awaiter(void 0, void 0, void 0, function* () {
+const getUserDocuments = (userId, requesterId) => __awaiter(void 0, void 0, void 0, function* () {
     const result = yield documents_model_1.Documents.find({ user: userId });
-    console.log('🚀 ~ getUserDocuments ~ result:', result);
-    return result;
+    // SCRUM-99: gate sensitive credentials for agencies (owner/admin see all).
+    const { filterVisibleDocuments } = yield Promise.resolve().then(() => __importStar(require('./credential-visibility')));
+    return filterVisibleDocuments(result, requesterId, userId);
 });
 const deleteDocument = (userId, documentId) => __awaiter(void 0, void 0, void 0, function* () {
     const result = yield documents_model_1.Documents.findByIdAndDelete(documentId);

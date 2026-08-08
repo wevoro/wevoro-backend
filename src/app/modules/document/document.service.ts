@@ -68,10 +68,14 @@ const uploadDocument = async (
   return result;
 };
 
-const getUserDocuments = async (userId: string): Promise<any> => {
+const getUserDocuments = async (
+  userId: string,
+  requesterId?: string
+): Promise<any> => {
   const result = await Documents.find({ user: userId });
-  console.log('🚀 ~ getUserDocuments ~ result:', result);
-  return result;
+  // SCRUM-99: gate sensitive credentials for agencies (owner/admin see all).
+  const { filterVisibleDocuments } = await import('./credential-visibility');
+  return filterVisibleDocuments(result, requesterId, userId);
 };
 
 const deleteDocument = async (

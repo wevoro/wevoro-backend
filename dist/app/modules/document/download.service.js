@@ -53,6 +53,8 @@ const professional_info_model_1 = require("../user/professional-info.model");
 const notification_model_1 = require("../user/notification.model");
 const personal_info_model_1 = require("../user/personal-info.model");
 const credentialing_service_1 = require("../credentialing/credentialing.service");
+const credential_visibility_1 = require("./credential-visibility");
+const user_model_1 = require("../user/user.model");
 const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
 const http_status_1 = __importDefault(require("http-status"));
 /**
@@ -64,10 +66,19 @@ const http_status_1 = __importDefault(require("http-status"));
  * Check if an agency has download access to a caregiver's documents.
  * Access requires: share-flow onboarding OR active engagement.
  */
-const hasDownloadAccess = (agencyId, caregiverId) => __awaiter(void 0, void 0, void 0, function* () {
-    // Partners can always download public/verified credentials for any caregiver they can view
-    // The visibility is already controlled by the getPros endpoint
-    return true;
+// SCRUM-99: gate a single credential download. An agency can download a
+// sensitive credential only once it is Confirmed (approved); general
+// credentials are always downloadable. Owner/admin always allowed.
+const hasDownloadAccess = (agencyId, caregiverId, documentType) => __awaiter(void 0, void 0, void 0, function* () {
+    if (!agencyId || agencyId.toString() === caregiverId.toString())
+        return true;
+    if (!(0, credential_visibility_1.isSensitiveCredential)(documentType))
+        return true;
+    const agency = yield user_model_1.User.findById(agencyId, { status: 1, role: 1 });
+    if (agency && (agency.role === 'admin' || agency.role === 'super_admin')) {
+        return true;
+    }
+    return (0, credential_visibility_1.isAgencyConfirmed)(agency === null || agency === void 0 ? void 0 : agency.status);
 });
 /**
  * Get all downloadable documents for a caregiver (from agency perspective)
@@ -94,7 +105,8 @@ const getDownloadableDocuments = (caregiverId, agencyId) => __awaiter(void 0, vo
     const allDocs = [...allUploadedDocs];
     if (gchexsDoc)
         allDocs.push(gchexsDoc);
-    return allDocs;
+    // SCRUM-99: gate sensitive credentials for un-confirmed agencies.
+    return (0, credential_visibility_1.filterVisibleDocuments)(allDocs, agencyId, caregiverId);
 });
 /**
  * Log a download event to the audit trail
@@ -148,8 +160,8 @@ const downloadDocument = (documentId, agencyId) => __awaiter(void 0, void 0, voi
     if (!doc) {
         throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'Document not found');
     }
-    // Check access
-    const hasAccess = yield hasDownloadAccess(agencyId, doc.user.toString());
+    // Check access (SCRUM-99: sensitive credentials require a Confirmed agency)
+    const hasAccess = yield hasDownloadAccess(agencyId, doc.user.toString(), doc.documentType);
     if (!hasAccess) {
         throw new ApiError_1.default(http_status_1.default.FORBIDDEN, 'You do not have access to download this document');
     }
