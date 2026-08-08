@@ -5,6 +5,9 @@ import { AuthController } from './auth.controller';
 const router = express.Router();
 
 router.post('/login', AuthController.loginUser);
+// SCRUM-99: passwordless agency login (email + emailed code)
+router.post('/request-code', AuthController.requestLoginCode);
+router.post('/verify-code', AuthController.verifyLoginCode);
 router.post('/google', AuthController.loginWithGoogle);
 router.post('/refresh-token', AuthController.refreshToken);
 

@@ -24,8 +24,9 @@ const UserSchema = new Schema<IUser, UserModel>(
     },
     password: {
       type: String,
+      // SCRUM-99: passwordless (email-code) agency accounts have no password.
       required: function () {
-        return !this.isGoogleUser;
+        return !this.isGoogleUser && !(this as any).isPasswordless;
       },
       select: 0,
     },
@@ -57,6 +58,11 @@ const UserSchema = new Schema<IUser, UserModel>(
     },
 
     isGoogleUser: {
+      type: Boolean,
+      default: false,
+    },
+    // SCRUM-99: agency accounts that log in with an emailed code, not a password.
+    isPasswordless: {
       type: Boolean,
       default: false,
     },

@@ -36,8 +36,9 @@ const UserSchema = new mongoose_1.Schema({
     },
     password: {
         type: String,
+        // SCRUM-99: passwordless (email-code) agency accounts have no password.
         required: function () {
-            return !this.isGoogleUser;
+            return !this.isGoogleUser && !this.isPasswordless;
         },
         select: 0,
     },
@@ -66,6 +67,11 @@ const UserSchema = new mongoose_1.Schema({
         enum: ['approved', 'pending', 'rejected', 'in-review'],
     },
     isGoogleUser: {
+        type: Boolean,
+        default: false,
+    },
+    // SCRUM-99: agency accounts that log in with an emailed code, not a password.
+    isPasswordless: {
         type: Boolean,
         default: false,
     },
