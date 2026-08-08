@@ -51,12 +51,13 @@ function sendEmail(to, subject, html) {
                 throw new Error('Failed to send email');
             }
         }
-        // Fallback: Gmail SMTP (local dev; unreliable on serverless).
+        // Fallback: Gmail SMTP (works locally; can be flaky on serverless).
         try {
+            const port = config_1.default.email_port || 587;
             const transporter = nodemailer_1.default.createTransport({
-                host: 'smtp.gmail.com',
-                port: 587,
-                secure: false,
+                host: config_1.default.email_host || 'smtp.gmail.com',
+                port,
+                secure: port === 465, // 465 = implicit TLS, 587 = STARTTLS
                 auth: {
                     user: config_1.default.email,
                     pass: config_1.default.appPass,

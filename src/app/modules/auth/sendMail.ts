@@ -37,12 +37,13 @@ export async function sendEmail(to: string, subject: string, html: string) {
     }
   }
 
-  // Fallback: Gmail SMTP (local dev; unreliable on serverless).
+  // Fallback: Gmail SMTP (works locally; can be flaky on serverless).
   try {
+    const port = config.email_port || 587;
     const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false,
+      host: config.email_host || 'smtp.gmail.com',
+      port,
+      secure: port === 465, // 465 = implicit TLS, 587 = STARTTLS
       auth: {
         user: config.email,
         pass: config.appPass,
