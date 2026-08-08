@@ -178,7 +178,11 @@ const getAllAvailablePros: RequestHandler = catchAsync(
 
 const getUserById: RequestHandler = catchAsync(
   async (req: Request, res: Response) => {
-    const result = await UserService.getUserById(req.params.id);
+    // SCRUM-99: pass the requester (optionalAuth) so sensitive GCHEXS is gated.
+    const result = await UserService.getUserById(
+      req.params.id,
+      req.user?._id as string | undefined
+    );
 
     sendResponse<IUser>(res, {
       statusCode: httpStatus.OK,

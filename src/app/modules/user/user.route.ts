@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import { ENUM_USER_ROLE } from '../../../enums/user';
-import auth from '../../middlewares/auth';
+import auth, { optionalAuth } from '../../middlewares/auth';
 import { UserController } from './user.controller';
 const router = express.Router();
 
@@ -74,7 +74,10 @@ router.get(
 
 router.get(
   '/profile/:id',
-  // auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.PRO),
+  // SCRUM-99: optionalAuth so the response can gate sensitive GCHEXS by requester
+  // (public endpoint, but a non-confirmed agency / anonymous caller must not see
+  // the background-check status or document link).
+  optionalAuth(),
   UserController.getUserById
 );
 router.get(

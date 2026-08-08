@@ -605,7 +605,10 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
   return result.length > 0 ? result[0] : null;
 };
 
-const getUserById = async (id: string): Promise<IUser | null> => {
+const getUserById = async (
+  id: string,
+  requesterId?: string
+): Promise<IUser | null> => {
   if (!id) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'User id is required');
   }
@@ -671,7 +674,38 @@ const getUserById = async (id: string): Promise<IUser | null> => {
     },
   ]);
 
-  return result.length > 0 ? result[0] : null;
+  const user = result.length > 0 ? result[0] : null;
+
+  // SCRUM-99: gate the sensitive GCHEXS background check on the profile view.
+  // Only the owner, an admin/super_admin, or a CONFIRMED (approved) agency may
+  // see the status + document link. For everyone else — anonymous callers, a
+  // Non-confirmed/Pending agency, or another caregiver — strip it. Mirrors the
+  // credential tier gate (credential-visibility.ts) for the professional-info surface.
+  if (user && user.professionalInfo) {
+    let authorized = false;
+    if (requesterId && requesterId.toString() === id.toString()) {
+      authorized = true; // owner
+    } else if (requesterId) {
+      const requester = await User.findById(requesterId).select('role status');
+      if (
+        requester &&
+        (requester.role === ENUM_USER_ROLE.ADMIN ||
+          requester.role === ENUM_USER_ROLE.SUPER_ADMIN ||
+          (requester.role === ENUM_USER_ROLE.PARTNER &&
+            requester.status === 'approved'))
+      ) {
+        authorized = true;
+      }
+    }
+    if (!authorized) {
+      delete user.professionalInfo.gchexsStatus;
+      delete user.professionalInfo.gchexsDocumentUrl;
+      delete user.professionalInfo.gchexsDocumentFileId;
+      delete user.professionalInfo.gchexsUpdatedAt;
+    }
+  }
+
+  return user;
 };
 
 const getUserByShareId = async (shareId: string): Promise<any> => {

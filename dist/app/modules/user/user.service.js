@@ -486,7 +486,7 @@ const getUserProfile = (user) => __awaiter(void 0, void 0, void 0, function* () 
     ]);
     return result.length > 0 ? result[0] : null;
 });
-const getUserById = (id) => __awaiter(void 0, void 0, void 0, function* () {
+const getUserById = (id, requesterId) => __awaiter(void 0, void 0, void 0, function* () {
     if (!id) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'User id is required');
     }
@@ -548,7 +548,35 @@ const getUserById = (id) => __awaiter(void 0, void 0, void 0, function* () {
             },
         },
     ]);
-    return result.length > 0 ? result[0] : null;
+    const user = result.length > 0 ? result[0] : null;
+    // SCRUM-99: gate the sensitive GCHEXS background check on the profile view.
+    // Only the owner, an admin/super_admin, or a CONFIRMED (approved) agency may
+    // see the status + document link. For everyone else — anonymous callers, a
+    // Non-confirmed/Pending agency, or another caregiver — strip it. Mirrors the
+    // credential tier gate (credential-visibility.ts) for the professional-info surface.
+    if (user && user.professionalInfo) {
+        let authorized = false;
+        if (requesterId && requesterId.toString() === id.toString()) {
+            authorized = true; // owner
+        }
+        else if (requesterId) {
+            const requester = yield user_model_1.User.findById(requesterId).select('role status');
+            if (requester &&
+                (requester.role === user_1.ENUM_USER_ROLE.ADMIN ||
+                    requester.role === user_1.ENUM_USER_ROLE.SUPER_ADMIN ||
+                    (requester.role === user_1.ENUM_USER_ROLE.PARTNER &&
+                        requester.status === 'approved'))) {
+                authorized = true;
+            }
+        }
+        if (!authorized) {
+            delete user.professionalInfo.gchexsStatus;
+            delete user.professionalInfo.gchexsDocumentUrl;
+            delete user.professionalInfo.gchexsDocumentFileId;
+            delete user.professionalInfo.gchexsUpdatedAt;
+        }
+    }
+    return user;
 });
 const getUserByShareId = (shareId) => __awaiter(void 0, void 0, void 0, function* () {
     if (!shareId) {

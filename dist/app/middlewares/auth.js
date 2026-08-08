@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.requirePermission = void 0;
+exports.requirePermission = exports.optionalAuth = void 0;
 const http_status_1 = __importDefault(require("http-status"));
 const config_1 = __importDefault(require("../../config"));
 const user_1 = require("../../enums/user");
@@ -48,6 +48,25 @@ const auth = (...requiredRoles) => (req, res, next) => __awaiter(void 0, void 0,
         next(error);
     }
 });
+/**
+ * SCRUM-99: optional auth. Populates req.user when a valid token is present but
+ * never rejects when it is absent/invalid — used on endpoints that are public but
+ * whose RESPONSE must be tailored to the requester (e.g. gating a caregiver's
+ * sensitive GCHEXS on the otherwise-public profile view).
+ */
+const optionalAuth = () => (req, _res, next) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const token = req.headers.authorization;
+        if (token) {
+            req.user = jwtHelpers_1.jwtHelpers.verifyToken(token, config_1.default.jwt.secret);
+        }
+    }
+    catch (_a) {
+        // invalid token => treat as anonymous, do not block the request
+    }
+    next();
+});
+exports.optionalAuth = optionalAuth;
 /**
  * Granular permission guard. Run AFTER `auth(...)` (which sets req.user).
  * Allows the request when:
