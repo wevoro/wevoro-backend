@@ -41,6 +41,13 @@ const PersonalInfoSchema = new Schema<any>(
     industry: {
       type: String,
     },
+    // SCRUM-99: which CPR certification providers this agency accepts
+    // (e.g. 'red_cross', 'aha', 'hsi', 'any'). Used by the share flow to warn a
+    // caregiver pre-share if their CPR provider isn't accepted by this agency.
+    acceptedCprProviders: {
+      type: [String],
+      default: [],
+    },
     address: {
       street: {
         type: String,
