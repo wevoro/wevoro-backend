@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -7,7 +40,7 @@ exports.UserRoutes = void 0;
 const express_1 = __importDefault(require("express"));
 const multer_1 = __importDefault(require("multer"));
 const user_1 = require("../../../enums/user");
-const auth_1 = __importDefault(require("../../middlewares/auth"));
+const auth_1 = __importStar(require("../../middlewares/auth"));
 const user_controller_1 = require("./user.controller");
 const router = express_1.default.Router();
 const storage = multer_1.default.diskStorage({});
@@ -30,8 +63,10 @@ router.patch('/update/:id', (0, auth_1.default)(user_1.ENUM_USER_ROLE.ADMIN), us
 router.patch('/update-all', (0, auth_1.default)(user_1.ENUM_USER_ROLE.ADMIN), user_controller_1.UserController.updateAllUsers);
 router.get('/profile', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.ADMIN), user_controller_1.UserController.getUserProfile);
 router.get('/profile/:id', 
-// auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.PRO),
-user_controller_1.UserController.getUserById);
+// SCRUM-99: optionalAuth so the response can gate sensitive GCHEXS by requester
+// (public endpoint, but a non-confirmed agency / anonymous caller must not see
+// the background-check status or document link).
+(0, auth_1.optionalAuth)(), user_controller_1.UserController.getUserById);
 router.get('/pros', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.ADMIN), user_controller_1.UserController.getPros);
 router.get('/all-pros', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.ADMIN), user_controller_1.UserController.getAllAvailablePros);
 router.get('/all', (0, auth_1.default)(user_1.ENUM_USER_ROLE.ADMIN), user_controller_1.UserController.getUsers);

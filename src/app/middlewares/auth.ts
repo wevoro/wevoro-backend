@@ -44,6 +44,26 @@ const auth =
   };
 
 /**
+ * SCRUM-99: optional auth. Populates req.user when a valid token is present but
+ * never rejects when it is absent/invalid — used on endpoints that are public but
+ * whose RESPONSE must be tailored to the requester (e.g. gating a caregiver's
+ * sensitive GCHEXS on the otherwise-public profile view).
+ */
+export const optionalAuth =
+  () =>
+  async (req: Request, _res: Response, next: NextFunction) => {
+    try {
+      const token = req.headers.authorization;
+      if (token) {
+        req.user = jwtHelpers.verifyToken(token, config.jwt.secret as Secret);
+      }
+    } catch {
+      // invalid token => treat as anonymous, do not block the request
+    }
+    next();
+  };
+
+/**
  * Granular permission guard. Run AFTER `auth(...)` (which sets req.user).
  * Allows the request when:
  *  - the user is a super_admin (implicit all-access), OR

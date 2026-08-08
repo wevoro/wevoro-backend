@@ -134,7 +134,9 @@ const getAllAvailablePros = (0, catchAsync_1.default)((req, res) => __awaiter(vo
     });
 }));
 const getUserById = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const result = yield user_service_1.UserService.getUserById(req.params.id);
+    var _a;
+    // SCRUM-99: pass the requester (optionalAuth) so sensitive GCHEXS is gated.
+    const result = yield user_service_1.UserService.getUserById(req.params.id, (_a = req.user) === null || _a === void 0 ? void 0 : _a._id);
     (0, sendResponse_1.default)(res, {
         statusCode: http_status_1.default.OK,
         success: true,
