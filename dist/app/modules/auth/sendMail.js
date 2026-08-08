@@ -23,6 +23,9 @@ const config_1 = __importDefault(require("../../../config"));
  * ("Failed to send email"). When RESEND_API_KEY is set we send over Resend's
  * HTTP API instead, which is serverless-friendly; otherwise we fall back to
  * Gmail SMTP for local development.
+ *
+ * RESEND_API_KEY is now provisioned in Vercel (preview + production), so on the
+ * deployed backend email is sent via Resend.
  */
 function sendEmail(to, subject, html) {
     return __awaiter(this, void 0, void 0, function* () {
