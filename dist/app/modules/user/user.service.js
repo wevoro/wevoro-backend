@@ -278,6 +278,39 @@ const updateOrCreateUserPersonalInformation = (payload, id, file) => __awaiter(v
     }
     return result;
 });
+// SCRUM-99 (Phase 2): the simplified "Complete your agency account" step for
+// passwordless agencies. Saves the four lookup fields the admin uses to verify
+// against the Georgia Home Care Provider Registry + Secretary of State (contact
+// name, agency name, city, state) plus the CPR providers this agency accepts,
+// then advances the account from Non-confirmed (pending) to Pending Verification
+// (in-review) so it surfaces in the admin review queue. Confirmation (approved)
+// still happens only after the admin's manual lookup — that is what unlocks the
+// sensitive-credential tier (see credential-visibility.ts).
+const completeAgencyProfile = (userId, payload) => __awaiter(void 0, void 0, void 0, function* () {
+    const { firstName, lastName, companyName, city, state, acceptedCprProviders } = payload || {};
+    const set = {};
+    if (firstName !== undefined)
+        set.firstName = firstName;
+    if (lastName !== undefined)
+        set.lastName = lastName;
+    if (companyName !== undefined)
+        set.companyName = companyName;
+    if (city !== undefined)
+        set['address.city'] = city;
+    if (state !== undefined)
+        set['address.state'] = state;
+    if (Array.isArray(acceptedCprProviders)) {
+        set.acceptedCprProviders = acceptedCprProviders;
+    }
+    yield personal_info_model_1.PersonalInfo.findOneAndUpdate({ user: userId }, { $set: set, $setOnInsert: { user: userId } }, { new: true, upsert: true });
+    // Only a Non-confirmed agency advances to Pending Verification. Never demote a
+    // Confirmed (approved) or already-in-review account from here.
+    const account = yield user_model_1.User.findById(userId).select('role status');
+    if ((account === null || account === void 0 ? void 0 : account.role) === user_1.ENUM_USER_ROLE.PARTNER && account.status === 'pending') {
+        yield user_model_1.User.findByIdAndUpdate(userId, { status: 'in-review' });
+    }
+    return { status: 'in-review' };
+});
 const updateOrCreateUserProfessionalInformation = (payload, id, files) => __awaiter(void 0, void 0, void 0, function* () {
     const { certifications } = payload;
     // Upload files to Cloudinary and create a map indexed by certification position
@@ -1219,6 +1252,7 @@ exports.UserService = {
     ensureSuperAdmin,
     getUserProfile,
     updateOrCreateUserPersonalInformation,
+    completeAgencyProfile,
     updateOrCreateUserProfessionalInformation,
     // updateOrCreateUserDocuments,
     getUserById,
