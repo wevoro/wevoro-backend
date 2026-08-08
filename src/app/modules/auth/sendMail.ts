@@ -10,8 +10,8 @@ import config from '../../../config';
  * HTTP API instead, which is serverless-friendly; otherwise we fall back to
  * Gmail SMTP for local development.
  *
- * RESEND_API_KEY is now provisioned in Vercel (preview + production), so on the
- * deployed backend email is sent via Resend.
+ * RESEND_API_KEY is provisioned in Vercel (preview + production) on the client's
+ * Resend account, so on the deployed backend email is sent via Resend.
  */
 export async function sendEmail(to: string, subject: string, html: string) {
   const resendKey = config.resend_api_key;
