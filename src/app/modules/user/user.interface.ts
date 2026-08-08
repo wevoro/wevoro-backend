@@ -14,6 +14,8 @@ export type IUser = {
   phone: string;
   image: string;
   isGoogleUser: boolean;
+  /** SCRUM-99: agency account that logs in with an emailed code, not a password. */
+  isPasswordless?: boolean;
   status: string;
   /** Status held before a block, restored on unblock. */
   previousStatus?: string | null;

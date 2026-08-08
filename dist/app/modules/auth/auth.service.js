@@ -42,6 +42,12 @@ const loginUser = (payload) => __awaiter(void 0, void 0, void 0, function* () {
     if (isGoogleUser) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Your account is associated with google! Please use google login.');
     }
+    // SCRUM-99: passwordless agency accounts must use the email-code flow, not
+    // the password form (otherwise the empty-password branch below would let
+    // anyone in without a code).
+    if (isUserExist && isUserExist.isPasswordless) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'This account uses email-code login. Please continue with your email code.');
+    }
     if (!isUserExist) {
         throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'User does not exist');
     }
@@ -230,6 +236,95 @@ const verifyOtp = (payload) => __awaiter(void 0, void 0, void 0, function* () {
     // Mark user as verified for password reset
     yield user_model_1.User.updateOne({ email }, { otp: null, otpExpiry: null, canResetPassword: true });
 });
+// SCRUM-99: passwordless login/signup for agencies (email + code).
+// Sends a 6-digit code; creates the account on first use so the caregiver-link
+// flow (Flow 2) is one step: email -> code -> session.
+const requestLoginCode = (payload) => __awaiter(void 0, void 0, void 0, function* () {
+    const email = (payload.email || '').toLowerCase().trim();
+    if (!email) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Email is required');
+    }
+    const isGoogleUser = yield user_model_1.User.isGoogleUser(email);
+    if (isGoogleUser) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'This account uses Google login. Please continue with Google.');
+    }
+    let user = yield user_model_1.User.findOne({ email, isGoogleUser: false }, { email: 1, role: 1, _id: 1, status: 1, isPasswordless: 1 });
+    // Existing password accounts must use the password login, not email-code.
+    if (user && !user.isPasswordless) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'This account uses a password. Please log in with your password.');
+    }
+    let isNewUser = false;
+    if (!user) {
+        const role = payload.role || user_1.ENUM_USER_ROLE.PARTNER;
+        // Resolve caregiver share-link attribution (mirrors createUser).
+        let sourceCaregiverId = undefined;
+        if (payload.sourceShareId) {
+            const caregiver = yield user_model_1.User.findOne({ shareId: payload.sourceShareId }, { _id: 1 });
+            if (caregiver)
+                sourceCaregiverId = caregiver._id;
+        }
+        user = yield user_model_1.User.create({
+            email,
+            role,
+            isPasswordless: true,
+            sourceShareId: payload.sourceShareId,
+            sourceCaregiverId,
+        });
+        isNewUser = true;
+    }
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes for login
+    yield user_model_1.User.updateOne({ email }, { otp, otpExpiry });
+    yield (0, sendMail_1.sendEmail)(email, 'Your WeVoro login code', `
+      <div>
+        <p>Your WeVoro login code is: <strong>${otp}</strong></p>
+        <p>This code is valid for 10 minutes.</p>
+        <p>If you didn't request this, you can ignore this email.</p>
+      </div>
+    `);
+    return { otpExpiry, isNewUser };
+});
+// SCRUM-99: verify the emailed code and issue a session (access + refresh tokens).
+const verifyLoginCode = (payload) => __awaiter(void 0, void 0, void 0, function* () {
+    const email = (payload.email || '').toLowerCase().trim();
+    const { otp } = payload;
+    const user = yield user_model_1.User.findOne({ email }, { otp: 1, otpExpiry: 1, role: 1, status: 1, permissions: 1, email: 1 });
+    if (!user) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'User not found!');
+    }
+    if (user.status === 'blocked') {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Your account is blocked! Please contact support.');
+    }
+    if (!user.otp || !user.otpExpiry || new Date() > user.otpExpiry) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Code has expired or is invalid!');
+    }
+    if (user.otp !== otp) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Invalid code!');
+    }
+    yield user_model_1.User.updateOne({ email }, { otp: null, otpExpiry: null, lastLoginAt: new Date() });
+    const { role, _id, status } = user;
+    const permissions = user.permissions || [];
+    const accessToken = jwtHelpers_1.jwtHelpers.createToken({ email, role, _id, status, permissions }, config_1.default.jwt.secret, config_1.default.jwt.expires_in);
+    const refreshToken = jwtHelpers_1.jwtHelpers.createToken({ email, role, _id, status, permissions }, config_1.default.jwt.refresh_secret, config_1.default.jwt.refresh_expires_in);
+    const returnData = { accessToken, refreshToken };
+    // Completion percentage drives the post-login redirect (mirror loginUser).
+    const personalInfo = yield personal_info_model_1.PersonalInfo.findOne({ user: _id });
+    if (role === user_1.ENUM_USER_ROLE.PARTNER) {
+        const fields = [
+            'image',
+            'firstName',
+            'lastName',
+            'phone',
+            'bio',
+            'dateOfBirth',
+            'companyName',
+            'industry',
+            'address',
+        ];
+        returnData.completionPercentage = (0, calculatePartnerPercentage_1.calculatePartnerPercentage)(fields, personalInfo);
+    }
+    return returnData;
+});
 const resetPassword = (payload) => __awaiter(void 0, void 0, void 0, function* () {
     const { email, password } = payload;
     const user = yield user_model_1.User.findOne({ email }, { canResetPassword: 1 });
@@ -246,6 +341,8 @@ const resetPassword = (payload) => __awaiter(void 0, void 0, void 0, function* (
 });
 exports.AuthService = {
     loginUser,
+    requestLoginCode,
+    verifyLoginCode,
     loginWithGoogle,
     refreshToken,
     changePassword,
