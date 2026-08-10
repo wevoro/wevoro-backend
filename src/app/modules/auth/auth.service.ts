@@ -408,8 +408,16 @@ const requestLoginCode = async (payload: {
     { email: 1, role: 1, _id: 1, status: 1, isPasswordless: 1 }
   );
 
-  // Existing password accounts must use the password login, not email-code.
-  if (user && !(user as any).isPasswordless) {
+  // Existing password accounts must use password login — EXCEPT agencies (partners),
+  // whose password login was retired in SCRUM-99 ("New Login Method"). Partners log in
+  // with an emailed code even if they still carry a legacy password; admins/caregivers
+  // keep password login. (verifyLoginCode already accepts any account with a valid code,
+  // so this guard is the only thing that was locking existing agencies out.)
+  if (
+    user &&
+    !(user as any).isPasswordless &&
+    user.role !== ENUM_USER_ROLE.PARTNER
+  ) {
     throw new ApiError(
       httpStatus.BAD_REQUEST,
       'This account uses a password. Please log in with your password.'
