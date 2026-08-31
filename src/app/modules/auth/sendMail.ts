@@ -31,7 +31,16 @@ export async function sendEmail(to: string, subject: string, html: string) {
       if (!res.ok) {
         const body = await res.text();
         console.error('Error sending email (Resend):', res.status, body);
-        throw new Error('Failed to send email');
+        // Surface the provider's own message. This used to throw a bare
+        // "Failed to send email", which hid genuinely actionable errors such as
+        // Resend's 403 "you can only send testing emails to your own address".
+        let detail = body;
+        try {
+          detail = JSON.parse(body)?.message || body;
+        } catch {
+          /* keep raw body */
+        }
+        throw new Error(`Failed to send email (Resend ${res.status}): ${detail}`);
       }
       return await res.json();
     } catch (error) {

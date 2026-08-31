@@ -20,8 +20,14 @@ router.get('/', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_U
 router.delete('/:documentId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.ADMIN), document_controller_1.DocumentController.deleteDocument);
 // Admin: review (approve/reject) a document
 router.patch('/:documentId/review', (0, auth_1.default)(user_1.ENUM_USER_ROLE.ADMIN), document_controller_1.DocumentController.reviewDocument);
-// Get credential status for a user (public for agency view)
-router.get('/credentials/:userId', document_controller_1.DocumentController.getCredentialStatus);
+// Get credential status for a user.
+// SECURITY (SCRUM-109): this was previously unauthenticated ("public for agency
+// view"). It bypasses filterVisibleDocuments, so anyone who knew a userId could
+// read that caregiver's TB test and GCHEXS metadata — the exact two credentials
+// the SCRUM-99 tier gate is meant to protect. The frontend does not use this
+// route (it reads the gated GET /document?userId=), so requiring auth here is
+// safe. Do not remove the auth() call.
+router.get('/credentials/:userId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.ADMIN, user_1.ENUM_USER_ROLE.SUPER_ADMIN), document_controller_1.DocumentController.getCredentialStatus);
 // Remove a credential (pro only)
 router.delete('/:documentId/remove-credential', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PRO), document_controller_1.DocumentController.removeCredential);
 // SCRUM-67: Download a single document (partner auth)

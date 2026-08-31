@@ -38,9 +38,16 @@ router.patch(
   DocumentController.reviewDocument
 );
 
-// Get credential status for a user (public for agency view)
+// Get credential status for a user.
+// SECURITY (SCRUM-109): this was previously unauthenticated ("public for agency
+// view"). It bypasses filterVisibleDocuments, so anyone who knew a userId could
+// read that caregiver's TB test and GCHEXS metadata — the exact two credentials
+// the SCRUM-99 tier gate is meant to protect. The frontend does not use this
+// route (it reads the gated GET /document?userId=), so requiring auth here is
+// safe. Do not remove the auth() call.
 router.get(
   '/credentials/:userId',
+  auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.PRO, ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
   DocumentController.getCredentialStatus
 );
 

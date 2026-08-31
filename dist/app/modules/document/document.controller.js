@@ -64,8 +64,11 @@ const deleteDocument = (0, catchAsync_1.default)((req, res) => __awaiter(void 0,
     });
 }));
 const reviewDocument = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     const { documentId } = req.params;
-    const { reviewStatus, credentialIdNumber, credentialIssueDate, credentialExpirationDate, issuingOrganization, rejectionReason } = req.body;
+    const { reviewStatus, credentialIdNumber, credentialIssueDate, credentialExpirationDate, issuingOrganization, rejectionReason, 
+    // SCRUM-109
+    rejectionReasonCode, requestReplacement, aiSuggestedReason, adminAgreedWithAi, } = req.body;
     const result = yield document_service_1.DocumentService.reviewDocument(documentId, {
         reviewStatus,
         credentialIdNumber,
@@ -73,6 +76,11 @@ const reviewDocument = (0, catchAsync_1.default)((req, res) => __awaiter(void 0,
         credentialExpirationDate,
         issuingOrganization,
         rejectionReason,
+        rejectionReasonCode,
+        requestReplacement,
+        aiSuggestedReason,
+        adminAgreedWithAi,
+        reviewedBy: (_a = req.user) === null || _a === void 0 ? void 0 : _a._id,
     });
     (0, sendResponse_1.default)(res, {
         statusCode: http_status_1.default.OK,
