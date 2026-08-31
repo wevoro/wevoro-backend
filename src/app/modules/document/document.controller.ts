@@ -70,7 +70,19 @@ const deleteDocument = catchAsync(async (req: Request, res: Response) => {
 
 const reviewDocument = catchAsync(async (req: Request, res: Response) => {
   const { documentId } = req.params;
-  const { reviewStatus, credentialIdNumber, credentialIssueDate, credentialExpirationDate, issuingOrganization, rejectionReason } = req.body;
+  const {
+    reviewStatus,
+    credentialIdNumber,
+    credentialIssueDate,
+    credentialExpirationDate,
+    issuingOrganization,
+    rejectionReason,
+    // SCRUM-109
+    rejectionReasonCode,
+    requestReplacement,
+    aiSuggestedReason,
+    adminAgreedWithAi,
+  } = req.body;
 
   const result = await DocumentService.reviewDocument(documentId, {
     reviewStatus,
@@ -79,6 +91,11 @@ const reviewDocument = catchAsync(async (req: Request, res: Response) => {
     credentialExpirationDate,
     issuingOrganization,
     rejectionReason,
+    rejectionReasonCode,
+    requestReplacement,
+    aiSuggestedReason,
+    adminAgreedWithAi,
+    reviewedBy: (req as any).user?._id,
   });
 
   sendResponse(res, {

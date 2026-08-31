@@ -14,6 +14,8 @@ const documents_model_1 = require("../document/documents.model");
 const notification_model_1 = require("../user/notification.model");
 const personal_info_model_1 = require("../user/personal-info.model");
 const engagement_helper_1 = require("./engagement.helper");
+// SCRUM-108: email delivery alongside the in-app notification.
+const credential_email_service_1 = require("./credential-email.service");
 /**
  * SCRUM-65: Credential Expiration Notification Cron Service
  *
@@ -60,7 +62,7 @@ const getCaregiverName = (userId) => __awaiter(void 0, void 0, void 0, function*
  * Fire a notification to a user
  */
 const fireNotification = (params) => __awaiter(void 0, void 0, void 0, function* () {
-    const { userId, message, type, credentialDocumentId, credentialName, ctaLink } = params;
+    const { userId, message, type, credentialDocumentId, credentialName, ctaLink, emailKind, daysUntilExpiration, } = params;
     // Deduplication check
     const alreadySent = yield isNotificationAlreadySent(userId, credentialDocumentId, type);
     if (alreadySent)
@@ -75,6 +77,17 @@ const fireNotification = (params) => __awaiter(void 0, void 0, void 0, function*
         isRead: false,
     });
     console.log(`📢 Notification fired: [${type}] to user ${userId} for ${credentialName}`);
+    // SCRUM-108: email rides the same trigger, AFTER the dedup guard — so it
+    // inherits dedup for free, and the SCRUM-102 renewal reset (which deletes the
+    // prior notifications) re-arms BOTH channels for the next lifecycle.
+    if (emailKind) {
+        yield (0, credential_email_service_1.sendCredentialEmail)({
+            userId,
+            kind: emailKind,
+            credentialName,
+            days: Math.max(0, daysUntilExpiration !== null && daysUntilExpiration !== void 0 ? daysUntilExpiration : 0),
+        });
+    }
 });
 /**
  * Main cron job function: evaluates all verified credentials
@@ -105,6 +118,8 @@ const evaluateCredentialExpirations = () => __awaiter(void 0, void 0, void 0, fu
                     credentialDocumentId: docId,
                     credentialName,
                     ctaLink: '/pro/profile#credentials',
+                    emailKind: 'yellow',
+                    daysUntilExpiration,
                 });
                 // No agency notification for Yellow band
             }
@@ -117,6 +132,8 @@ const evaluateCredentialExpirations = () => __awaiter(void 0, void 0, void 0, fu
                     credentialDocumentId: docId,
                     credentialName,
                     ctaLink: '/pro/profile#credentials',
+                    emailKind: 'red',
+                    daysUntilExpiration,
                 });
                 // Agency notifications for Red band
                 const engagedAgencies = yield (0, engagement_helper_1.getEngagedAgencies)(caregiverId);
@@ -141,6 +158,8 @@ const evaluateCredentialExpirations = () => __awaiter(void 0, void 0, void 0, fu
                     credentialDocumentId: docId,
                     credentialName,
                     ctaLink: '/pro/profile#credentials',
+                    emailKind: 'expired',
+                    daysUntilExpiration,
                 });
                 // Agency notifications for Expiration
                 const engagedAgencies = yield (0, engagement_helper_1.getEngagedAgencies)(caregiverId);
@@ -181,6 +200,14 @@ const fireRejectionNotification = (params) => __awaiter(void 0, void 0, void 0, 
         isRead: false,
     });
     console.log(`📢 Rejection notification fired for ${credentialName} to caregiver ${caregiverId}`);
+    // SCRUM-108 Scenario 4: real-time rejection email carrying the SPECIFIC admin
+    // reason (saved by the SCRUM-109 not-confirmed modal), not a generic line.
+    yield (0, credential_email_service_1.sendCredentialEmail)({
+        userId: caregiverId,
+        kind: 'rejected',
+        credentialName,
+        reason,
+    });
 });
 exports.fireRejectionNotification = fireRejectionNotification;
 /**

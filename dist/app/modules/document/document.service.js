@@ -80,6 +80,7 @@ const uploadDocument = (file, payload, documentId, userId) => __awaiter(void 0, 
     // Only update URL if a new file was uploaded
     if (fileUrl) {
         documentData.url = fileUrl;
+        documentData.fileSize = file === null || file === void 0 ? void 0 : file.size;
     }
     let result;
     if (!existingDocument) {
@@ -87,8 +88,34 @@ const uploadDocument = (file, payload, documentId, userId) => __awaiter(void 0, 
         result = yield documents_model_1.Documents.create(documentData);
     }
     else {
+        const updateQuery = {};
+        // A replaced file has NOT been reviewed yet, so send the document back to
+        // the pending queue and drop the previous verdict. Without this the row
+        // kept whatever reviewStatus it already had: re-uploading after a rejection
+        // showed "Document updated successfully!" while the credential stayed
+        // `rejected`, so the Completing Profile modal kept demanding a re-upload
+        // with no way out — and a replaced file on an approved credential silently
+        // inherited the old approval. Metadata-only edits (title / privacy /
+        // consent) deliberately do NOT reset the verdict; only a new file does.
+        //
+        // The extracted credential fields (ID number, dates, issuer,
+        // wevoroCredentialId) are RETAINED, matching reviewDocument's rejection
+        // path, so the admin still sees what was previously on file.
+        if (fileUrl && existingDocument.reviewStatus !== 'pending') {
+            documentData.reviewStatus = 'pending';
+            documentData.replacementRequested = false;
+            updateQuery.$unset = {
+                reviewedAt: '',
+                reviewedBy: '',
+                rejectionReason: '',
+                rejectionReasonCode: '',
+                aiSuggestedReason: '',
+                adminAgreedWithAi: '',
+            };
+        }
         // Update existing document (only provided fields)
-        result = yield documents_model_1.Documents.findByIdAndUpdate(documentId, documentData, {
+        updateQuery.$set = documentData;
+        result = yield documents_model_1.Documents.findByIdAndUpdate(documentId, updateQuery, {
             new: true,
         });
     }
@@ -104,38 +131,99 @@ const deleteDocument = (userId, documentId) => __awaiter(void 0, void 0, void 0,
     const result = yield documents_model_1.Documents.findByIdAndDelete(documentId);
     return result;
 });
+/**
+ * SCRUM-109/110: WeVoro's own credential ID, generated at confirmation.
+ * Sits alongside the provider's own ID (credentialIdNumber) so an agency can
+ * see both — proof WeVoro checked it, and the number on the document itself.
+ * Shape: WV-<CRED>-<YEAR>-<6 hex>, e.g. WV-CPR-2026-A3F91C
+ */
+const buildWevoroCredentialId = (documentType) => {
+    const codes = {
+        certifications: 'CRT',
+        driver_license: 'DL',
+        auto_insurance: 'INS',
+        cpr_test: 'CPR',
+        tb_tests: 'TB',
+        gchexs: 'BGC',
+    };
+    const code = codes[documentType || ''] || 'DOC';
+    const rand = Math.random().toString(16).slice(2, 8).toUpperCase();
+    return `WV-${code}-${new Date().getFullYear()}-${rand}`;
+};
 const reviewDocument = (documentId, payload) => __awaiter(void 0, void 0, void 0, function* () {
-    const { reviewStatus, credentialIdNumber, credentialIssueDate, credentialExpirationDate, issuingOrganization, rejectionReason } = payload;
+    const { reviewStatus, credentialIdNumber, credentialIssueDate, credentialExpirationDate, issuingOrganization, rejectionReason, rejectionReasonCode, requestReplacement, aiSuggestedReason, adminAgreedWithAi, reviewedBy, hasNoExpiration, } = payload;
     if (reviewStatus === 'approved') {
-        if (!credentialIdNumber || !credentialIssueDate || !credentialExpirationDate || !issuingOrganization) {
-            throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Credential ID, Issue Date, Expiration Date, and Issuing Organization are required for approval');
+        // SCRUM-109: Credential ID may legitimately be absent (TB test, some CPR
+        // Tier 2 providers), and expiration is optional when hasNoExpiration is set
+        // ("Reviewed, no fixed renewal"). Issue date + issuer remain required.
+        if (!credentialIssueDate || !issuingOrganization) {
+            throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Issue Date and Issuing Organization are required to confirm a credential');
         }
-        const issueDate = new Date(credentialIssueDate);
-        const expirationDate = new Date(credentialExpirationDate);
-        if (expirationDate <= issueDate) {
-            throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Expiration Date must be later than Issue Date');
+        if (!hasNoExpiration && !credentialExpirationDate) {
+            throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Provide an Expiration Date, or mark the credential as having no expiration');
+        }
+        if (!hasNoExpiration && credentialExpirationDate) {
+            const issueDate = new Date(credentialIssueDate);
+            const expirationDate = new Date(credentialExpirationDate);
+            if (expirationDate <= issueDate) {
+                throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Expiration Date must be later than Issue Date');
+            }
         }
     }
-    const updateData = { reviewStatus };
+    // SCRUM-109: a rejection must record WHY, so require the caregiver-facing
+    // message. The admin UI always sends one (see mark-not-confirmed-modal).
+    if (reviewStatus === 'rejected' && !(rejectionReason === null || rejectionReason === void 0 ? void 0 : rejectionReason.trim())) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'A reason message for the caregiver is required when marking a document as not confirmed');
+    }
+    const set = { reviewStatus };
+    const unset = {};
+    if (reviewedBy)
+        set.reviewedBy = reviewedBy;
     if (reviewStatus === 'approved') {
-        updateData.reviewedAt = new Date();
-        updateData.credentialIdNumber = credentialIdNumber;
-        updateData.credentialIssueDate = new Date(credentialIssueDate);
-        updateData.credentialExpirationDate = new Date(credentialExpirationDate);
-        updateData.issuingOrganization = issuingOrganization;
-        // Clear rejection reason if previously rejected
-        updateData.rejectionReason = undefined;
+        const existing = yield documents_model_1.Documents.findById(documentId).select('documentType wevoroCredentialId');
+        set.reviewedAt = new Date();
+        set.credentialIdNumber = credentialIdNumber;
+        set.credentialIssueDate = new Date(credentialIssueDate);
+        set.issuingOrganization = issuingOrganization;
+        set.replacementRequested = false;
+        set.hasNoExpiration = hasNoExpiration === true;
+        if (hasNoExpiration) {
+            unset.credentialExpirationDate = '';
+        }
+        else {
+            set.credentialExpirationDate = new Date(credentialExpirationDate);
+        }
+        // Issue WeVoro's own credential ID once, on first confirmation, and keep it
+        // stable across re-confirmations so the agency-facing trail doesn't change.
+        if (!(existing === null || existing === void 0 ? void 0 : existing.wevoroCredentialId)) {
+            set.wevoroCredentialId = buildWevoroCredentialId(existing === null || existing === void 0 ? void 0 : existing.documentType);
+        }
+        // Clear any prior rejection.
+        unset.rejectionReason = '';
+        unset.rejectionReasonCode = '';
     }
     else if (reviewStatus === 'rejected') {
-        updateData.rejectionReason = rejectionReason || '';
-        // Clear approval metadata
-        updateData.reviewedAt = undefined;
-        updateData.credentialIdNumber = undefined;
-        updateData.credentialIssueDate = undefined;
-        updateData.credentialExpirationDate = undefined;
-        updateData.issuingOrganization = undefined;
+        set.rejectionReason = rejectionReason.trim();
+        if (rejectionReasonCode)
+            set.rejectionReasonCode = rejectionReasonCode;
+        set.replacementRequested = requestReplacement === true;
+        if (aiSuggestedReason)
+            set.aiSuggestedReason = aiSuggestedReason;
+        if (typeof adminAgreedWithAi === 'boolean')
+            set.adminAgreedWithAi = adminAgreedWithAi;
+        // Not confirmed is not a reviewed-and-valid state, so drop the confirmation
+        // timestamp. The extracted credential fields are deliberately RETAINED —
+        // the admin view still shows Certificate ID / dates / issuer on a
+        // not-confirmed card so the caregiver and admin can see what was rejected.
+        unset.reviewedAt = '';
     }
-    const result = yield documents_model_1.Documents.findByIdAndUpdate(documentId, updateData, { new: true });
+    // NOTE: this previously passed `undefined` values to findByIdAndUpdate to
+    // "clear" fields. Mongoose drops undefined keys, so those clears were silently
+    // no-ops and stale metadata survived. Use an explicit $unset.
+    const updateQuery = { $set: set };
+    if (Object.keys(unset).length > 0)
+        updateQuery.$unset = unset;
+    const result = yield documents_model_1.Documents.findByIdAndUpdate(documentId, updateQuery, { new: true });
     // SCRUM-102 renewal reset: when a credential is (re-)approved with a new
     // expiration date, clear its prior expiration notifications so the next
     // lifecycle fires fresh. Without this, the dedup keyed on

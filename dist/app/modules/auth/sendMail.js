@@ -29,6 +29,7 @@ const config_1 = __importDefault(require("../../../config"));
  */
 function sendEmail(to, subject, html) {
     return __awaiter(this, void 0, void 0, function* () {
+        var _a;
         const resendKey = config_1.default.resend_api_key;
         // Preferred path: Resend HTTP API (works reliably on serverless).
         if (resendKey) {
@@ -45,7 +46,17 @@ function sendEmail(to, subject, html) {
                 if (!res.ok) {
                     const body = yield res.text();
                     console.error('Error sending email (Resend):', res.status, body);
-                    throw new Error('Failed to send email');
+                    // Surface the provider's own message. This used to throw a bare
+                    // "Failed to send email", which hid genuinely actionable errors such as
+                    // Resend's 403 "you can only send testing emails to your own address".
+                    let detail = body;
+                    try {
+                        detail = ((_a = JSON.parse(body)) === null || _a === void 0 ? void 0 : _a.message) || body;
+                    }
+                    catch (_b) {
+                        /* keep raw body */
+                    }
+                    throw new Error(`Failed to send email (Resend ${res.status}): ${detail}`);
                 }
                 return yield res.json();
             }
