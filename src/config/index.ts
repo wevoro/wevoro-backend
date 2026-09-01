@@ -56,6 +56,10 @@ export default {
     local: process.env.FRONTEND_URL_LOCAL,
     prod: process.env.FRONTEND_URL_PROD,
   },
+  // SCRUM-108: public base URL used by credential alert emails for the CTA
+  // link and image assets. Kept separate from frontend_url, whose value is a
+  // leftover pointing at a different product.
+  app_public_url: process.env.APP_PUBLIC_URL,
   openai_api_key: process.env.OPENAI_API_KEY,
   // SCRUM-87/88: platform-wide credentialing-only beta flag. Defaults ON unless
   // explicitly set to 'false', so the beta stays safe if the env var is missing.
