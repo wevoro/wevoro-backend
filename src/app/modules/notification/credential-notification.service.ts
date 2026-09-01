@@ -76,6 +76,7 @@ const fireNotification = async (params: {
    */
   emailKind?: CredentialEmailKind;
   daysUntilExpiration?: number;
+  expiresOn?: Date | null;
 }): Promise<void> => {
   const {
     userId,
@@ -86,6 +87,7 @@ const fireNotification = async (params: {
     ctaLink,
     emailKind,
     daysUntilExpiration,
+    expiresOn,
   } = params;
 
   // Deduplication check
@@ -113,6 +115,7 @@ const fireNotification = async (params: {
       kind: emailKind,
       credentialName,
       days: Math.max(0, daysUntilExpiration ?? 0),
+      expiresOn,
     });
   }
 };
@@ -153,6 +156,7 @@ export const evaluateCredentialExpirations = async (): Promise<void> => {
           ctaLink: '/pro/profile#credentials',
           emailKind: 'yellow',
           daysUntilExpiration,
+          expiresOn: expirationDate,
         });
         // No agency notification for Yellow band
       }
@@ -168,6 +172,7 @@ export const evaluateCredentialExpirations = async (): Promise<void> => {
           ctaLink: '/pro/profile#credentials',
           emailKind: 'red',
           daysUntilExpiration,
+          expiresOn: expirationDate,
         });
 
         // Agency notifications for Red band
@@ -197,6 +202,7 @@ export const evaluateCredentialExpirations = async (): Promise<void> => {
           ctaLink: '/pro/profile#credentials',
           emailKind: 'expired',
           daysUntilExpiration,
+          expiresOn: expirationDate,
         });
 
         // Agency notifications for Expiration

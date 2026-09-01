@@ -62,7 +62,7 @@ const getCaregiverName = (userId) => __awaiter(void 0, void 0, void 0, function*
  * Fire a notification to a user
  */
 const fireNotification = (params) => __awaiter(void 0, void 0, void 0, function* () {
-    const { userId, message, type, credentialDocumentId, credentialName, ctaLink, emailKind, daysUntilExpiration, } = params;
+    const { userId, message, type, credentialDocumentId, credentialName, ctaLink, emailKind, daysUntilExpiration, expiresOn, } = params;
     // Deduplication check
     const alreadySent = yield isNotificationAlreadySent(userId, credentialDocumentId, type);
     if (alreadySent)
@@ -86,6 +86,7 @@ const fireNotification = (params) => __awaiter(void 0, void 0, void 0, function*
             kind: emailKind,
             credentialName,
             days: Math.max(0, daysUntilExpiration !== null && daysUntilExpiration !== void 0 ? daysUntilExpiration : 0),
+            expiresOn,
         });
     }
 });
@@ -120,6 +121,7 @@ const evaluateCredentialExpirations = () => __awaiter(void 0, void 0, void 0, fu
                     ctaLink: '/pro/profile#credentials',
                     emailKind: 'yellow',
                     daysUntilExpiration,
+                    expiresOn: expirationDate,
                 });
                 // No agency notification for Yellow band
             }
@@ -134,6 +136,7 @@ const evaluateCredentialExpirations = () => __awaiter(void 0, void 0, void 0, fu
                     ctaLink: '/pro/profile#credentials',
                     emailKind: 'red',
                     daysUntilExpiration,
+                    expiresOn: expirationDate,
                 });
                 // Agency notifications for Red band
                 const engagedAgencies = yield (0, engagement_helper_1.getEngagedAgencies)(caregiverId);
@@ -160,6 +163,7 @@ const evaluateCredentialExpirations = () => __awaiter(void 0, void 0, void 0, fu
                     ctaLink: '/pro/profile#credentials',
                     emailKind: 'expired',
                     daysUntilExpiration,
+                    expiresOn: expirationDate,
                 });
                 // Agency notifications for Expiration
                 const engagedAgencies = yield (0, engagement_helper_1.getEngagedAgencies)(caregiverId);
