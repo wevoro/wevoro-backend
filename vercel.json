@@ -21,7 +21,7 @@
     },
     {
       "path": "/api/v1/esign/run-signing-reminders",
-      "schedule": "30 * * * *"
+      "schedule": "0 9 * * *"
     }
   ]
 }
