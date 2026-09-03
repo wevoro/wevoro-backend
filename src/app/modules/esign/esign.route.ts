@@ -34,6 +34,7 @@ router.patch(
 );
 
 // --- SCRUM-118: caregiver signing flow ---
+router.get('/my-packets', auth(ENUM_USER_ROLE.PRO), EsignController.myPackets);
 router.get('/offer/:offerId', auth(ENUM_USER_ROLE.PRO), EsignController.offerContext);
 router.post('/offer/:offerId/start', auth(ENUM_USER_ROLE.PRO), EsignController.startPacket);
 router.post(

@@ -90,6 +90,12 @@ export const startPacket = catchAsync(async (req: Request, res: Response) => {
   sendResponse(res, { statusCode: httpStatus.OK, success: true, data: result });
 });
 
+/** SCRUM-118: this caregiver's signing packets, for the signing panel. */
+export const myPackets = catchAsync(async (req: Request, res: Response) => {
+  const result = await EsignService.getMyPackets(currentUserId(req));
+  sendResponse(res, { statusCode: httpStatus.OK, success: true, data: result });
+});
+
 /** SCRUM-118: sign one document; completes the packet on the last one. */
 export const signItem = catchAsync(async (req: Request, res: Response) => {
   const result = await EsignService.signItem({

@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.runSigningReminders = exports.signItem = exports.startPacket = exports.getOfferContext = exports.restoreDocument = exports.removeDocument = exports.pendingCopiesCount = exports.replaceDocument = exports.addDocuments = exports.getLibrary = exports.reminderTiersHours = void 0;
+exports.runSigningReminders = exports.signItem = exports.getMyPackets = exports.startPacket = exports.getOfferContext = exports.restoreDocument = exports.removeDocument = exports.pendingCopiesCount = exports.replaceDocument = exports.addDocuments = exports.getLibrary = exports.reminderTiersHours = void 0;
 const http_status_1 = __importDefault(require("http-status"));
 const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
 const bunny_upload_1 = require("../../../helpers/bunny-upload");
@@ -285,6 +285,31 @@ const startPacket = (params) => __awaiter(void 0, void 0, void 0, function* () {
     });
 });
 exports.startPacket = startPacket;
+/**
+ * Every packet belonging to this caregiver, newest first, with the agency name
+ * resolved. Powers the caregiver's signing panel: in credentialing mode the
+ * Offers tab shows agency engagements rather than the classic offer box, so
+ * without this there is no surface anywhere that a pending packet can be
+ * reached from.
+ */
+const getMyPackets = (caregiverId) => __awaiter(void 0, void 0, void 0, function* () {
+    const packets = yield esign_model_1.SignaturePacket.find({ caregiver: caregiverId }).sort({ createdAt: -1 });
+    return Promise.all(packets.map((p) => __awaiter(void 0, void 0, void 0, function* () {
+        return ({
+            _id: p._id,
+            offer: p.offer,
+            role: p.role,
+            status: p.status,
+            stampName: p.stampName,
+            stampId: p.stampId,
+            items: p.items,
+            agencyName: yield displayName(String(p.agency)),
+            pendingCount: p.items.filter((i) => i.status === 'pending').length,
+            signedCount: p.items.filter((i) => i.status === 'signed').length,
+        });
+    })));
+});
+exports.getMyPackets = getMyPackets;
 /**
  * Sign one document. Each signature commits immediately (resume-safe). When
  * the last pending item is signed the packet completes and the agency gets its
