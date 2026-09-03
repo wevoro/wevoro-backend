@@ -445,6 +445,9 @@ export const runSigningReminders = async (): Promise<void> => {
       caregiverId: String(packet.caregiver),
       agencyName,
       pendingCount,
+      role: packet.role,
+      // The template prints "reminder N", so count what has already gone out.
+      reminderNumber: (packet.remindersSent as number[]).length + 1,
     });
     (packet.remindersSent as number[]).push(...due);
     await packet.save();

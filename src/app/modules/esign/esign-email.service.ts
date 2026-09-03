@@ -48,31 +48,46 @@ const deliver = async (userId: string, subject: string, html: string, tag: strin
   }
 };
 
-/** SCRUM-118: reminder while signing is stalled (Step 1 done, Step 2 not). */
+/**
+ * SCRUM-118: reminder while signing is stalled (Step 1 done, Step 2 not).
+ * Copy and structure follow Faisal's approved template (Figma 10547:3949):
+ * pencil emblem, SIGNATURE NEEDED eyebrow, role in the heading, a DOCUMENTS /
+ * FROM detail card, "Review & sign documents", the reminder number, and the
+ * SignWell-on-behalf-of footer.
+ */
 export const sendSignatureReminderEmail = async (params: {
   caregiverId: string;
   agencyName: string;
   pendingCount: number;
+  role: string;
+  /** 1-based position in the escalation, shown as "reminder N". */
+  reminderNumber: number;
 }): Promise<void> => {
-  const { caregiverId, agencyName, pendingCount } = params;
+  const { caregiverId, agencyName, pendingCount, role, reminderNumber } = params;
   const n = pendingCount;
   const docWord = n === 1 ? 'document' : 'documents';
+  const agency = escapeHtml(agencyName);
   const html = renderAlertEmail({
-    emblem: 'emblem-yellow.png',
+    emblem: 'emblem-sign.png',
     eyebrow: 'SIGNATURE NEEDED',
     accent: C.amber,
-    heading: `Your signature is needed on ${n} ${docWord}`,
+    heading: `Please sign your ${escapeHtml(role)} documents`,
     greetingName: await firstNameOf(caregiverId),
-    intro: `${escapeHtml(agencyName)} is waiting on your signature to finish your onboarding. It only takes a minute &mdash; pick up right where you left off.`,
+    intro: `${agency} is waiting on your signature on ${n} ${docWord} to finish onboarding. It only takes a minute to sign them securely online &mdash; no printing or scanning needed.`,
     detailRowsHtml:
-      emailDetailRow('AGENCY', escapeHtml(agencyName), 0) +
-      emailDetailRow('WAITING FOR YOU', `${n} ${docWord} to sign`, 14),
-    cta: 'Finish signing',
+      emailDetailRow('DOCUMENTS', `${n} ${docWord} (${escapeHtml(role)})`, 0) +
+      emailDetailRow('FROM', agency, 14),
+    cta: 'Review &amp; sign documents',
     ctaHref: `${emailAppUrl()}/pro/offers`,
-    note: 'This is an automated alert from WeVoro. Disregard if you have already finished signing.',
-    footerLine: CAREGIVER_FOOTER,
+    note: `This is reminder ${reminderNumber} of your signature request. You&rsquo;ll stop receiving these once all documents are signed.`,
+    footerLine: `Sent securely via SignWell on behalf of ${agency}.`,
   });
-  await deliver(caregiverId, `Your signature is needed on ${n} ${docWord}`, html, 'reminder');
+  await deliver(
+    caregiverId,
+    `Please sign your ${role} documents`,
+    html,
+    'reminder'
+  );
 };
 
 /** SCRUM-117: a document awaiting the caregiver's signature was replaced. */
