@@ -9,6 +9,7 @@ import { PartnerVerificationRoutes } from '../modules/partner-verification/partn
 import { ShiftRoutes } from '../modules/shift/shift.route';
 import { CredentialingRoutes } from '../modules/credentialing/credentialing.route';
 import { CredentialNotificationRoutes } from '../modules/notification/credential-notification.route';
+import { EsignRoutes } from '../modules/esign/esign.route';
 
 const router = express.Router();
 
@@ -48,6 +49,11 @@ const moduleRoutes = [
   {
     path: '/notification',
     route: CredentialNotificationRoutes,
+  },
+  {
+    // SCRUM-117/118: e-signature (agency library + caregiver signing)
+    path: '/esign',
+    route: EsignRoutes,
   },
 ];
 

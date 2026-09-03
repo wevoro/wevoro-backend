@@ -17,6 +17,7 @@ const mongoose_1 = __importDefault(require("mongoose"));
 const app_1 = __importDefault(require("./app"));
 const index_1 = __importDefault(require("./config/index"));
 const credential_notification_service_1 = require("./app/modules/notification/credential-notification.service");
+const esign_service_1 = require("./app/modules/esign/esign.service");
 const user_service_1 = require("./app/modules/user/user.service");
 process.on('uncaughtException', error => {
     console.error(error);
@@ -75,6 +76,12 @@ function bootstrap() {
         // SCRUM-65: Start credential expiration notification cron
         if (mongoose_1.default.connection.readyState === 1) {
             (0, credential_notification_service_1.startCredentialNotificationCron)();
+            // SCRUM-118: hourly signing-reminder scan. Local/dev driver only — on
+            // Vercel serverless the interval never fires; the vercel.json cron pings
+            // /esign/run-signing-reminders instead.
+            setInterval(() => {
+                (0, esign_service_1.runSigningReminders)().catch((e) => console.error('[esign] reminder scan failed:', e));
+            }, 60 * 60 * 1000);
             // Super Admin panel: guarantee the fixed super admin exists.
             yield user_service_1.UserService.ensureSuperAdmin();
         }

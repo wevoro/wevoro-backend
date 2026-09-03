@@ -8,6 +8,11 @@ import { Documents } from '../document/documents.model';
 import { Notification } from '../user/notification.model';
 import { User } from '../user/user.model';
 import { PersonalInfo } from '../user/personal-info.model';
+// SCRUM-117/118: e-signature — packet creation on accept + branded offer email
+import { startPacket } from '../esign/esign.service';
+import { SigningDocument } from '../esign/esign.model';
+import { ProfessionalInfo } from '../user/professional-info.model';
+import { sendOfferReceivedEmail } from '../esign/esign-email.service';
 import { sendEmail } from '../auth/sendMail';
 
 const createOrUpdateOffer = async (
@@ -62,13 +67,21 @@ const createOrUpdateOffer = async (
       proEmail
     );
 
-    // Send email notification
+    // SCRUM-118: branded offer email, including how many documents the
+    // caregiver's role would have to sign with this agency (0 hides the line).
     if (proEmail) {
-      await sendEmail(
-        proEmail,
-        isUpdate ? 'Offer Updated' : 'New Offer Received',
-        `<div>${message}<p>Thank you</p></div>`
-      );
+      const proRole =
+        (await ProfessionalInfo.findOne({ user: payload.pro }).select('role'))?.role || 'CNA';
+      const signCount = await SigningDocument.countDocuments({
+        agency: user._id,
+        role: proRole,
+        status: 'active',
+      });
+      await sendOfferReceivedEmail({
+        caregiverId: String(payload.pro),
+        agencyName: companyName,
+        signCount,
+      });
     }
   } catch (error) {
     // Log error but don't fail the request
@@ -527,6 +540,20 @@ const proRespondToOffer = async (
 
   // 4. Save all changes atomically
   await offer.save();
+
+  // SCRUM-118: Step 1 of the accept flow is complete — snapshot the signature
+  // packet for this caregiver's role (no-op when the agency has no signing
+  // documents; idempotent when the packet already exists). Server-side so a
+  // closed browser between Step 1 and Step 2 still starts the reminder clock.
+  try {
+    await startPacket({
+      offerId: String(offer._id),
+      agencyId: String(offer.partner),
+      caregiverId: String(offer.pro),
+    });
+  } catch (e) {
+    console.error('[esign] packet creation failed for offer', String(offer._id), e);
+  }
 
   // 5. Send consolidated notification to partner
   try {
