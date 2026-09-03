@@ -396,6 +396,9 @@ const runSigningReminders = () => __awaiter(void 0, void 0, void 0, function* ()
             caregiverId: String(packet.caregiver),
             agencyName,
             pendingCount,
+            role: packet.role,
+            // The template prints "reminder N", so count what has already gone out.
+            reminderNumber: packet.remindersSent.length + 1,
         });
         packet.remindersSent.push(...due);
         yield packet.save();
