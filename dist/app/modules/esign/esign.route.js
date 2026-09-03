@@ -52,6 +52,7 @@ router.patch('/documents/:id/replace', (0, auth_1.default)(user_1.ENUM_USER_ROLE
 router.delete('/documents/:id', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), EsignController.removeDocument);
 router.patch('/documents/:id/restore', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), EsignController.restoreDocument);
 // --- SCRUM-118: caregiver signing flow ---
+router.get('/my-packets', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PRO), EsignController.myPackets);
 router.get('/offer/:offerId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PRO), EsignController.offerContext);
 router.post('/offer/:offerId/start', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PRO), EsignController.startPacket);
 router.post('/packet/:packetId/sign/:itemId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PRO), EsignController.signItem);

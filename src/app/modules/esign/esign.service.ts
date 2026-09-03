@@ -322,6 +322,31 @@ export const startPacket = async (params: {
 };
 
 /**
+ * Every packet belonging to this caregiver, newest first, with the agency name
+ * resolved. Powers the caregiver's signing panel: in credentialing mode the
+ * Offers tab shows agency engagements rather than the classic offer box, so
+ * without this there is no surface anywhere that a pending packet can be
+ * reached from.
+ */
+export const getMyPackets = async (caregiverId: string) => {
+  const packets = await SignaturePacket.find({ caregiver: caregiverId }).sort({ createdAt: -1 });
+  return Promise.all(
+    packets.map(async (p) => ({
+      _id: p._id,
+      offer: p.offer,
+      role: p.role,
+      status: p.status,
+      stampName: p.stampName,
+      stampId: p.stampId,
+      items: p.items,
+      agencyName: await displayName(String(p.agency)),
+      pendingCount: (p.items as any[]).filter((i) => i.status === 'pending').length,
+      signedCount: (p.items as any[]).filter((i) => i.status === 'signed').length,
+    }))
+  );
+};
+
+/**
  * Sign one document. Each signature commits immediately (resume-safe). When
  * the last pending item is signed the packet completes and the agency gets its
  * one and only notification — in-app + email, full completion, never partial.
