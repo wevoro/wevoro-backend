@@ -22,8 +22,14 @@ const documents_model_1 = require("../document/documents.model");
 const notification_model_1 = require("../user/notification.model");
 const user_model_1 = require("../user/user.model");
 const personal_info_model_1 = require("../user/personal-info.model");
+// SCRUM-117/118: e-signature — packet creation on accept + branded offer email
+const esign_service_1 = require("../esign/esign.service");
+const esign_model_1 = require("../esign/esign.model");
+const professional_info_model_1 = require("../user/professional-info.model");
+const esign_email_service_1 = require("../esign/esign-email.service");
 const sendMail_1 = require("../auth/sendMail");
 const createOrUpdateOffer = (payload, user) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     // Ensure the payload has the partner ID
     payload.partner = user._id;
     console.log('🚀 ~ createOrUpdateOffer ~ payload:', payload);
@@ -62,9 +68,20 @@ const createOrUpdateOffer = (payload, user) => __awaiter(void 0, void 0, void 0,
             message,
         });
         console.log('🚀 ~ createOrUpdateOffer ~ notification:', notification, proEmail);
-        // Send email notification
+        // SCRUM-118: branded offer email, including how many documents the
+        // caregiver's role would have to sign with this agency (0 hides the line).
         if (proEmail) {
-            yield (0, sendMail_1.sendEmail)(proEmail, isUpdate ? 'Offer Updated' : 'New Offer Received', `<div>${message}<p>Thank you</p></div>`);
+            const proRole = ((_a = (yield professional_info_model_1.ProfessionalInfo.findOne({ user: payload.pro }).select('role'))) === null || _a === void 0 ? void 0 : _a.role) || 'CNA';
+            const signCount = yield esign_model_1.SigningDocument.countDocuments({
+                agency: user._id,
+                role: proRole,
+                status: 'active',
+            });
+            yield (0, esign_email_service_1.sendOfferReceivedEmail)({
+                caregiverId: String(payload.pro),
+                agencyName: companyName,
+                signCount,
+            });
         }
     }
     catch (error) {
@@ -412,6 +429,20 @@ const proRespondToOffer = (offerId, files, statusUpdates, user) => __awaiter(voi
     }
     // 4. Save all changes atomically
     yield offer.save();
+    // SCRUM-118: Step 1 of the accept flow is complete — snapshot the signature
+    // packet for this caregiver's role (no-op when the agency has no signing
+    // documents; idempotent when the packet already exists). Server-side so a
+    // closed browser between Step 1 and Step 2 still starts the reminder clock.
+    try {
+        yield (0, esign_service_1.startPacket)({
+            offerId: String(offer._id),
+            agencyId: String(offer.partner),
+            caregiverId: String(offer.pro),
+        });
+    }
+    catch (e) {
+        console.error('[esign] packet creation failed for offer', String(offer._id), e);
+    }
     // 5. Send consolidated notification to partner
     try {
         const proInfo = yield personal_info_model_1.PersonalInfo.findOne({ user: user._id });

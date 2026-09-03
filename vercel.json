@@ -18,6 +18,10 @@
     {
       "path": "/api/v1/notification/run-expiration-check",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/v1/esign/run-signing-reminders",
+      "schedule": "30 * * * *"
     }
   ]
 }

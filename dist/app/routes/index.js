@@ -13,6 +13,7 @@ const partner_verification_route_1 = require("../modules/partner-verification/pa
 const shift_route_1 = require("../modules/shift/shift.route");
 const credentialing_route_1 = require("../modules/credentialing/credentialing.route");
 const credential_notification_route_1 = require("../modules/notification/credential-notification.route");
+const esign_route_1 = require("../modules/esign/esign.route");
 const router = express_1.default.Router();
 const moduleRoutes = [
     {
@@ -50,6 +51,11 @@ const moduleRoutes = [
     {
         path: '/notification',
         route: credential_notification_route_1.CredentialNotificationRoutes,
+    },
+    {
+        // SCRUM-117/118: e-signature (agency library + caregiver signing)
+        path: '/esign',
+        route: esign_route_1.EsignRoutes,
     },
 ];
 moduleRoutes.forEach(route => router.use(route.path, route.route));
