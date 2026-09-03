@@ -131,8 +131,16 @@ exports.signItem = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, voi
 }));
 /**
  * SCRUM-118: reminder cron trigger. Same shape as the SCRUM-102 expiration
- * endpoint: Vercel Cron GETs it daily-or-hourly with Authorization: Bearer
- * CRON_SECRET; when the secret is unset (local dev) the check is skipped.
+ * endpoint: Vercel Cron GETs it with Authorization: Bearer CRON_SECRET; when
+ * the secret is unset (local dev) the check is skipped.
+ *
+ * CADENCE CAVEAT: vercel.json schedules this DAILY because the account is on
+ * Vercel's Hobby plan, which rejects any cron running more than once a day
+ * (the deploy fails outright). The reminder tiers are hours-based, so on a
+ * daily scan a "2 hours after Step 1" reminder actually goes out at the next
+ * daily run. To get the tight cadence the client asked for, either move the
+ * project to Vercel Pro or point an external scheduler at this endpoint —
+ * nothing in the logic needs to change, only how often it is pinged.
  */
 const runReminders = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const secret = process.env.CRON_SECRET;
