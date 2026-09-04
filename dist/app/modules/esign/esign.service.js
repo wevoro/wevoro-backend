@@ -471,9 +471,18 @@ const signItem = (params) => __awaiter(void 0, void 0, void 0, function* () {
     }
     if (item.status === 'signed')
         return packet; // idempotent
+    // A document cannot be signed without a signature. Nothing enforced this
+    // before: the item was marked signed regardless, and buildSignedPdf quietly
+    // fell back to printing the caregiver's name — producing a document that
+    // asserts a signature nobody ever made. The client gates on this too, but the
+    // client is not the authority.
+    const drawing = signatureImage || packet.signatureImage;
+    if (!drawing || !String(drawing).startsWith('data:image')) {
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Draw your signature before signing this document');
+    }
     // The drawing is captured once and reused for the rest of the packet.
-    if (signatureImage && !packet.signatureImage) {
-        packet.signatureImage = signatureImage;
+    if (!packet.signatureImage) {
+        packet.signatureImage = drawing;
     }
     item.status = 'signed';
     item.signedAt = new Date();
