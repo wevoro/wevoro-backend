@@ -5,6 +5,19 @@ import config from '../../../config';
 import { ENUM_USER_ROLE } from '../../../enums/user';
 import ApiError from '../../../errors/ApiError';
 import { calculatePartnerPercentage } from '../../../helpers/calculatePartnerPercentage';
+
+/**
+ * SCRUM-99: the agency completion form collects contact name, agency name, city
+ * and state. Treat it as done when those are on file — this is the signal that
+ * drives the post-login redirect, not completionPercentage.
+ */
+const isAgencyProfileComplete = (personalInfo: any): boolean =>
+  !!(
+    personalInfo?.companyName &&
+    personalInfo?.address?.city &&
+    personalInfo?.address?.state
+  );
+
 import { calculateProCompletion } from '../../../helpers/calculateProCompletion';
 import { jwtHelpers } from '../../../helpers/jwtHelpers';
 import { Documents } from '../document/documents.model';
@@ -128,6 +141,7 @@ const loginUser = async (payload: ILoginUser): Promise<ILoginUserResponse> => {
       fields,
       personalInfo
     );
+    returnData.agencyProfileComplete = isAgencyProfileComplete(personalInfo);
   }
 
   return returnData;
@@ -227,6 +241,7 @@ const loginWithGoogle = async (
       fields,
       personalInfo
     );
+    returnData.agencyProfileComplete = isAgencyProfileComplete(personalInfo);
   }
 
   console.log('🚀 ~ loginWithGoogle ~ returnData:', returnData);
@@ -538,6 +553,7 @@ const verifyLoginCode = async (payload: {
       fields,
       personalInfo
     );
+    returnData.agencyProfileComplete = isAgencyProfileComplete(personalInfo);
   }
 
   return returnData;

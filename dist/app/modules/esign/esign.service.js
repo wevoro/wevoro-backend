@@ -182,7 +182,8 @@ const replaceDocument = (agencyId, documentId, file) => __awaiter(void 0, void 0
         affected += 1;
         yield notification_model_1.Notification.create({
             user: packet.caregiver,
-            message: `<strong>${agencyName}</strong> updated <strong>${doc.title}</strong>. Your earlier copy is no longer valid — please review and sign the new version.`,
+            message: `<strong>This document was updated</strong><br />` +
+                `Your agency sent a newer version. The previous copy is no longer valid — please sign the updated document below.`,
             type: 'esign_replaced',
             ctaLink: '/pro/offers',
             isRead: false,
@@ -346,7 +347,7 @@ const signItem = (params) => __awaiter(void 0, void 0, void 0, function* () {
         const count = packet.items.filter((i) => i.status === 'signed').length;
         yield notification_model_1.Notification.create({
             user: packet.agency,
-            message: `<strong>${caregiverName}</strong> signed all ${count} of your ${packet.role} documents. Their onboarding paperwork is complete.`,
+            message: `<strong>${caregiverName}</strong> signed all ${count} ${packet.role} documents.`,
             type: 'esign_completed',
             ctaLink: '/partner/onboardings',
             isRead: false,

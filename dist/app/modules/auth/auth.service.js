@@ -19,6 +19,17 @@ const config_1 = __importDefault(require("../../../config"));
 const user_1 = require("../../../enums/user");
 const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
 const calculatePartnerPercentage_1 = require("../../../helpers/calculatePartnerPercentage");
+/**
+ * SCRUM-99: the agency completion form collects contact name, agency name, city
+ * and state. Treat it as done when those are on file — this is the signal that
+ * drives the post-login redirect, not completionPercentage.
+ */
+const isAgencyProfileComplete = (personalInfo) => {
+    var _a, _b;
+    return !!((personalInfo === null || personalInfo === void 0 ? void 0 : personalInfo.companyName) &&
+        ((_a = personalInfo === null || personalInfo === void 0 ? void 0 : personalInfo.address) === null || _a === void 0 ? void 0 : _a.city) &&
+        ((_b = personalInfo === null || personalInfo === void 0 ? void 0 : personalInfo.address) === null || _b === void 0 ? void 0 : _b.state));
+};
 const calculateProCompletion_1 = require("../../../helpers/calculateProCompletion");
 const jwtHelpers_1 = require("../../../helpers/jwtHelpers");
 const documents_model_1 = require("../document/documents.model");
@@ -89,6 +100,7 @@ const loginUser = (payload) => __awaiter(void 0, void 0, void 0, function* () {
             'address',
         ];
         returnData.completionPercentage = (0, calculatePartnerPercentage_1.calculatePartnerPercentage)(fields, personalInfo);
+        returnData.agencyProfileComplete = isAgencyProfileComplete(personalInfo);
     }
     return returnData;
 });
@@ -144,6 +156,7 @@ const loginWithGoogle = (payload) => __awaiter(void 0, void 0, void 0, function*
             'address',
         ];
         returnData.completionPercentage = (0, calculatePartnerPercentage_1.calculatePartnerPercentage)(fields, personalInfo);
+        returnData.agencyProfileComplete = isAgencyProfileComplete(personalInfo);
     }
     console.log('🚀 ~ loginWithGoogle ~ returnData:', returnData);
     return returnData;
@@ -328,6 +341,7 @@ const verifyLoginCode = (payload) => __awaiter(void 0, void 0, void 0, function*
             'address',
         ];
         returnData.completionPercentage = (0, calculatePartnerPercentage_1.calculatePartnerPercentage)(fields, personalInfo);
+        returnData.agencyProfileComplete = isAgencyProfileComplete(personalInfo);
     }
     return returnData;
 });
