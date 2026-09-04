@@ -6,8 +6,10 @@ import { PersonalInfo } from '../user/personal-info.model';
 import { ProfessionalInfo } from '../user/professional-info.model';
 import { Offer } from '../offer/offer.model';
 import { ESIGN_ROLES, EsignRole, SignaturePacket, SigningDocument } from './esign.model';
+import { stampAndStore, buildPackage } from './esign-document.service';
 import {
   sendDocumentReplacedEmail,
+  sendSignedPackageEmail,
   sendSignatureReminderEmail,
   sendSigningCompleteEmail,
 } from './esign-email.service';
@@ -45,6 +47,33 @@ export const reminderTiersHours = (): number[] =>
     .map((s) => Number(s.trim()))
     .filter((n) => Number.isFinite(n) && n > 0)
     .sort((a, b) => a - b);
+
+/**
+ * The name printed under the signature.
+ *
+ * Several accounts are created with firstName AND lastName both set to the
+ * email address, which rendered the block as the address printed twice. Drop
+ * the duplicate, and strip an address down to its local part so it reads like
+ * a name. Resolved every time a document is stamped rather than frozen onto
+ * the packet, so a packet created before this existed — or one belonging to a
+ * caregiver who has since filled in their real name — comes out correct.
+ */
+export const signatureName = async (caregiverId: string): Promise<string> => {
+  const info = await PersonalInfo.findOne({ user: caregiverId }).select(
+    'firstName lastName'
+  );
+  const first = (info?.firstName || '').trim();
+  const last = (info?.lastName || '').trim();
+  const joined =
+    first && last && first.toLowerCase() !== last.toLowerCase()
+      ? `${first} ${last}`
+      : first || last;
+  return (
+    (joined.includes('@')
+      ? joined.split('@')[0].replace(/[._-]+/g, ' ').trim()
+      : joined) || 'WeVoro Caregiver'
+  );
+};
 
 const displayName = async (userId: string): Promise<string> => {
   const info = await PersonalInfo.findOne({ user: userId }).select(
@@ -332,9 +361,7 @@ export const startPacket = async (params: {
   });
   if (docs.length === 0) return null;
 
-  const info = await PersonalInfo.findOne({ user: caregiverId }).select('firstName lastName');
-  const stampName =
-    `${info?.firstName || ''} ${info?.lastName || ''}`.trim() || 'WeVoro Caregiver';
+  const stampName = await signatureName(caregiverId);
 
   return SignaturePacket.create({
     offer: offerId,
@@ -394,8 +421,10 @@ export const signItem = async (params: {
   caregiverId: string;
   ip?: string;
   userAgent?: string;
+  /** Hand-drawn signature as a PNG data URL, sent with the first signature. */
+  signatureImage?: string;
 }) => {
-  const { packetId, itemId, caregiverId, ip, userAgent } = params;
+  const { packetId, itemId, caregiverId, ip, userAgent, signatureImage } = params;
   const packet = await SignaturePacket.findOne({ _id: packetId, caregiver: caregiverId });
   if (!packet) throw new ApiError(httpStatus.NOT_FOUND, 'Signing packet not found');
   if (packet.status === 'completed') {
@@ -409,10 +438,39 @@ export const signItem = async (params: {
   }
   if (item.status === 'signed') return packet; // idempotent
 
+  // The drawing is captured once and reused for the rest of the packet.
+  if (signatureImage && !packet.signatureImage) {
+    packet.signatureImage = signatureImage;
+  }
+
   item.status = 'signed';
   item.signedAt = new Date();
   item.signatureIp = ip;
   item.signatureUserAgent = userAgent;
+
+  // Burn the signature onto the document so there is a real artefact to hand
+  // over. A stamping failure must not lose the signature itself, so it is
+  // caught: the item stays signed and the file can be regenerated.
+  try {
+    const agencyName = await displayName(String(packet.agency));
+    // Resolved now, not at startPacket: older packets carry a name captured
+    // before the duplicate-email cleanup existed.
+    const signerName = await signatureName(String(packet.caregiver));
+    if (signerName !== packet.stampName) packet.stampName = signerName;
+    item.signedFileUrl = await stampAndStore({
+      fileUrl: item.fileUrl,
+      title: item.title,
+      signatureImage: packet.signatureImage,
+      signerName,
+      stampId: packet.stampId,
+      signedAt: item.signedAt,
+      ip,
+      userAgent,
+      agencyName,
+    });
+  } catch (err: any) {
+    console.error(`[esign] could not stamp ${item.title}:`, err?.message);
+  }
 
   const allSigned = (packet.items as any[]).every((i) => i.status !== 'pending');
   if (allSigned) {
@@ -431,12 +489,40 @@ export const signItem = async (params: {
       ctaLink: '/partner/onboardings',
       isRead: false,
     });
-    await sendSigningCompleteEmail({
-      agencyId: String(packet.agency),
-      caregiverName,
-      role: packet.role,
-      count,
-    });
+    // Package everything and deliver it. The agency gets the ZIP attached to
+    // the completion email AND a copy stored on the packet, so it stays
+    // reachable from their account after the email is gone.
+    let pkg: { url: string; bytes: Buffer; fileName: string } | null = null;
+    try {
+      const files = (packet.items as any[])
+        .filter((i) => i.status === 'signed' && i.signedFileUrl)
+        .map((i) => ({ title: i.title, url: i.signedFileUrl as string }));
+      if (files.length) {
+        pkg = await buildPackage({ caregiverName, role: packet.role, files });
+        packet.packageUrl = pkg.url;
+        packet.packageSentAt = new Date();
+        await packet.save();
+      }
+    } catch (err: any) {
+      console.error('[esign] could not build the signed package:', err?.message);
+    }
+
+    if (pkg) {
+      await sendSignedPackageEmail({
+        agencyId: String(packet.agency),
+        caregiverName,
+        role: packet.role,
+        count,
+        zip: { filename: pkg.fileName, content: pkg.bytes },
+      });
+    } else {
+      await sendSigningCompleteEmail({
+        agencyId: String(packet.agency),
+        caregiverName,
+        role: packet.role,
+        count,
+      });
+    }
   }
   return packet;
 };
