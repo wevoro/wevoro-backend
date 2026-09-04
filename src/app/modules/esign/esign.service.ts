@@ -4,6 +4,7 @@ import { uploadFile } from '../../../helpers/bunny-upload';
 import { Notification } from '../user/notification.model';
 import { PersonalInfo } from '../user/personal-info.model';
 import { ProfessionalInfo } from '../user/professional-info.model';
+import { Offer } from '../offer/offer.model';
 import { ESIGN_ROLES, EsignRole, SignaturePacket, SigningDocument } from './esign.model';
 import {
   sendDocumentReplacedEmail,
@@ -250,6 +251,40 @@ export const restoreDocument = async (agencyId: string, documentId: string) => {
   );
   if (!doc) throw new ApiError(httpStatus.NOT_FOUND, 'Document not found');
   return doc;
+};
+
+
+/**
+ * SCRUM-117/118: an agency downloading a caregiver's credentials IS the
+ * "connection" the ticket and the Figma dev notes talk about ("documents
+ * auto-send when a caregiver connects"). But every signing surface in the
+ * design hangs off an offer, so a connection with no offer had nowhere to show
+ * the documents and nothing was ever sent.
+ *
+ * On the first download we therefore open an offer for that pair, which is what
+ * carries "Documents to be signed" to the caregiver. Idempotent: an agency that
+ * already has an offer with this caregiver never gets a second one, so repeat
+ * downloads are silent.
+ *
+ * Returns the offer when one was created, otherwise null.
+ */
+export const ensureOfferOnConnection = async (params: {
+  agencyId: string;
+  caregiverId: string;
+}): Promise<any | null> => {
+  const { agencyId, caregiverId } = params;
+  const existing = await Offer.findOne({ partner: agencyId, pro: caregiverId });
+  if (existing) return null;
+
+  const offer = await Offer.create({
+    partner: agencyId,
+    pro: caregiverId,
+    status: 'pending',
+  });
+  console.log(
+    `[esign] connection offer opened for agency ${agencyId} -> caregiver ${caregiverId}`
+  );
+  return offer;
 };
 
 // ---------------------------------------------------------------------------
