@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.runSigningReminders = exports.signItem = exports.getMyPackets = exports.startPacket = exports.getOfferContext = exports.ensureOfferOnConnection = exports.restoreDocument = exports.removeDocument = exports.pendingCopiesCount = exports.replaceDocument = exports.addDocuments = exports.getLibrary = exports.reminderTiersHours = void 0;
+exports.runSigningReminders = exports.signItem = exports.getMyPackets = exports.startPacket = exports.getOfferContext = exports.ensureOfferOnConnection = exports.restoreDocument = exports.removeDocument = exports.pendingCopiesCount = exports.replaceDocument = exports.addDocuments = exports.getLibrary = exports.signatureName = exports.reminderTiersHours = void 0;
 const http_status_1 = __importDefault(require("http-status"));
 const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
 const bunny_upload_1 = require("../../../helpers/bunny-upload");
@@ -21,6 +21,7 @@ const personal_info_model_1 = require("../user/personal-info.model");
 const professional_info_model_1 = require("../user/professional-info.model");
 const offer_model_1 = require("../offer/offer.model");
 const esign_model_1 = require("./esign.model");
+const esign_document_service_1 = require("./esign-document.service");
 const esign_email_service_1 = require("./esign-email.service");
 /**
  * SCRUM-117/118: e-signature service.
@@ -53,6 +54,28 @@ const reminderTiersHours = () => (process.env.ESIGN_REMINDER_HOURS || '2,24,72')
     .filter((n) => Number.isFinite(n) && n > 0)
     .sort((a, b) => a - b);
 exports.reminderTiersHours = reminderTiersHours;
+/**
+ * The name printed under the signature.
+ *
+ * Several accounts are created with firstName AND lastName both set to the
+ * email address, which rendered the block as the address printed twice. Drop
+ * the duplicate, and strip an address down to its local part so it reads like
+ * a name. Resolved every time a document is stamped rather than frozen onto
+ * the packet, so a packet created before this existed — or one belonging to a
+ * caregiver who has since filled in their real name — comes out correct.
+ */
+const signatureName = (caregiverId) => __awaiter(void 0, void 0, void 0, function* () {
+    const info = yield personal_info_model_1.PersonalInfo.findOne({ user: caregiverId }).select('firstName lastName');
+    const first = ((info === null || info === void 0 ? void 0 : info.firstName) || '').trim();
+    const last = ((info === null || info === void 0 ? void 0 : info.lastName) || '').trim();
+    const joined = first && last && first.toLowerCase() !== last.toLowerCase()
+        ? `${first} ${last}`
+        : first || last;
+    return ((joined.includes('@')
+        ? joined.split('@')[0].replace(/[._-]+/g, ' ').trim()
+        : joined) || 'WeVoro Caregiver');
+});
+exports.signatureName = signatureName;
 const displayName = (userId) => __awaiter(void 0, void 0, void 0, function* () {
     const info = yield personal_info_model_1.PersonalInfo.findOne({ user: userId }).select('firstName lastName companyName');
     const person = `${(info === null || info === void 0 ? void 0 : info.firstName) || ''} ${(info === null || info === void 0 ? void 0 : info.lastName) || ''}`.trim();
@@ -87,6 +110,66 @@ const getLibrary = (agencyId) => __awaiter(void 0, void 0, void 0, function* () 
     return groups;
 });
 exports.getLibrary = getLibrary;
+/**
+ * A packet is a snapshot of the library taken when the caregiver connected, so
+ * a document uploaded afterwards would never reach anyone already onboarding —
+ * the agency saw two documents in the group while the caregiver was still only
+ * asked to sign one.
+ *
+ * This pushes the missing active documents into a packet. It matches on the
+ * source document id, so a document already present in any state (signed,
+ * pending or outdated) is never issued twice, and a document the agency has
+ * since removed is never reintroduced.
+ *
+ * Returns the documents that were actually added.
+ */
+const reconcilePacketItems = (packet, docs) => {
+    const present = new Set(packet.items.map((i) => String(i.signingDocument)));
+    const missing = docs.filter((d) => !present.has(String(d._id)));
+    for (const d of missing) {
+        packet.items.push({
+            signingDocument: d._id,
+            title: d.title,
+            fileName: d.fileName,
+            fileUrl: d.fileUrl,
+            version: d.version,
+            status: 'pending',
+        });
+    }
+    return missing;
+};
+/**
+ * Issue newly uploaded documents into every packet still open for that role,
+ * mirroring how replaceDocument re-issues a new version. Completed packets are
+ * left alone: reopening finished paperwork is a product decision, not a bug fix.
+ */
+const issueToOpenPackets = (agencyId, role, docs) => __awaiter(void 0, void 0, void 0, function* () {
+    if (!docs.length)
+        return 0;
+    const packets = yield esign_model_1.SignaturePacket.find({
+        agency: agencyId,
+        role,
+        status: { $ne: 'completed' },
+    });
+    const agencyName = yield displayName(agencyId);
+    let notified = 0;
+    for (const packet of packets) {
+        const added = reconcilePacketItems(packet, docs);
+        if (!added.length)
+            continue;
+        yield packet.save();
+        notified += 1;
+        yield notification_model_1.Notification.create({
+            user: packet.caregiver,
+            message: `<strong>${added.length === 1 ? 'A new document needs your signature' : `${added.length} new documents need your signature`}</strong><br />` +
+                `${agencyName} added ${added.length === 1 ? added[0].title : `${added.length} documents`} to your onboarding.`,
+            type: 'esign_added',
+            ctaLink: '/pro/offers',
+            isRead: false,
+        });
+    }
+    return notified;
+});
 const addDocuments = (agencyId, role, files) => __awaiter(void 0, void 0, void 0, function* () {
     if (!esign_model_1.ESIGN_ROLES.includes(role)) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Role must be CNA or PCA');
@@ -127,7 +210,10 @@ const addDocuments = (agencyId, role, files) => __awaiter(void 0, void 0, void 0
         });
         accepted.push(doc);
     }
-    return { accepted, rejected };
+    // Caregivers already onboarding must receive the new documents too, otherwise
+    // the agency's group and the caregiver's list disagree for ever.
+    const caregiversNotified = yield issueToOpenPackets(agencyId, role, accepted);
+    return { accepted, rejected, caregiversNotified };
 });
 exports.addDocuments = addDocuments;
 /**
@@ -268,9 +354,25 @@ const getOfferContext = (params) => __awaiter(void 0, void 0, void 0, function* 
     const { offerId, agencyId, caregiverId } = params;
     const role = yield caregiverRole(caregiverId);
     const packet = yield esign_model_1.SignaturePacket.findOne({ offer: offerId, caregiver: caregiverId });
+    const active = yield esign_model_1.SigningDocument.find({ agency: agencyId, role, status: 'active' }).sort({
+        createdAt: 1,
+    });
+    // The offer card lists the packet's items, so reconcile here too — otherwise a
+    // document added after the caregiver connected stays invisible on the card
+    // until they happen to open the signing modal.
+    if (packet && packet.status !== 'completed') {
+        const added = reconcilePacketItems(packet, active);
+        if (added.length)
+            yield packet.save();
+    }
     const documents = packet
         ? [] // once a packet exists the snapshot is the source of truth
-        : yield esign_model_1.SigningDocument.find({ agency: agencyId, role, status: 'active' }).select('title fileName version');
+        : active.map((d) => ({
+            _id: d._id,
+            title: d.title,
+            fileName: d.fileName,
+            version: d.version,
+        }));
     return { role, documents, packet };
 });
 exports.getOfferContext = getOfferContext;
@@ -282,17 +384,25 @@ exports.getOfferContext = getOfferContext;
  */
 const startPacket = (params) => __awaiter(void 0, void 0, void 0, function* () {
     const { offerId, agencyId, caregiverId } = params;
-    const existing = yield esign_model_1.SignaturePacket.findOne({ offer: offerId, caregiver: caregiverId });
-    if (existing)
-        return existing; // resume, never restart
     const role = yield caregiverRole(caregiverId);
     const docs = yield esign_model_1.SigningDocument.find({ agency: agencyId, role, status: 'active' }).sort({
         createdAt: 1,
     });
+    const existing = yield esign_model_1.SignaturePacket.findOne({ offer: offerId, caregiver: caregiverId });
+    if (existing) {
+        // Resume, never restart — but reconcile first, so a packet created before
+        // the library grew (or before addDocuments issued new documents) picks up
+        // anything it is missing instead of staying short for ever.
+        if (existing.status !== 'completed') {
+            const added = reconcilePacketItems(existing, docs);
+            if (added.length)
+                yield existing.save();
+        }
+        return existing;
+    }
     if (docs.length === 0)
         return null;
-    const info = yield personal_info_model_1.PersonalInfo.findOne({ user: caregiverId }).select('firstName lastName');
-    const stampName = `${(info === null || info === void 0 ? void 0 : info.firstName) || ''} ${(info === null || info === void 0 ? void 0 : info.lastName) || ''}`.trim() || 'WeVoro Caregiver';
+    const stampName = yield (0, exports.signatureName)(caregiverId);
     return esign_model_1.SignaturePacket.create({
         offer: offerId,
         agency: agencyId,
@@ -346,7 +456,7 @@ exports.getMyPackets = getMyPackets;
  * one and only notification — in-app + email, full completion, never partial.
  */
 const signItem = (params) => __awaiter(void 0, void 0, void 0, function* () {
-    const { packetId, itemId, caregiverId, ip, userAgent } = params;
+    const { packetId, itemId, caregiverId, ip, userAgent, signatureImage } = params;
     const packet = yield esign_model_1.SignaturePacket.findOne({ _id: packetId, caregiver: caregiverId });
     if (!packet)
         throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'Signing packet not found');
@@ -361,10 +471,39 @@ const signItem = (params) => __awaiter(void 0, void 0, void 0, function* () {
     }
     if (item.status === 'signed')
         return packet; // idempotent
+    // The drawing is captured once and reused for the rest of the packet.
+    if (signatureImage && !packet.signatureImage) {
+        packet.signatureImage = signatureImage;
+    }
     item.status = 'signed';
     item.signedAt = new Date();
     item.signatureIp = ip;
     item.signatureUserAgent = userAgent;
+    // Burn the signature onto the document so there is a real artefact to hand
+    // over. A stamping failure must not lose the signature itself, so it is
+    // caught: the item stays signed and the file can be regenerated.
+    try {
+        const agencyName = yield displayName(String(packet.agency));
+        // Resolved now, not at startPacket: older packets carry a name captured
+        // before the duplicate-email cleanup existed.
+        const signerName = yield (0, exports.signatureName)(String(packet.caregiver));
+        if (signerName !== packet.stampName)
+            packet.stampName = signerName;
+        item.signedFileUrl = yield (0, esign_document_service_1.stampAndStore)({
+            fileUrl: item.fileUrl,
+            title: item.title,
+            signatureImage: packet.signatureImage,
+            signerName,
+            stampId: packet.stampId,
+            signedAt: item.signedAt,
+            ip,
+            userAgent,
+            agencyName,
+        });
+    }
+    catch (err) {
+        console.error(`[esign] could not stamp ${item.title}:`, err === null || err === void 0 ? void 0 : err.message);
+    }
     const allSigned = packet.items.every((i) => i.status !== 'pending');
     if (allSigned) {
         packet.status = 'completed';
@@ -381,12 +520,41 @@ const signItem = (params) => __awaiter(void 0, void 0, void 0, function* () {
             ctaLink: '/partner/onboardings',
             isRead: false,
         });
-        yield (0, esign_email_service_1.sendSigningCompleteEmail)({
-            agencyId: String(packet.agency),
-            caregiverName,
-            role: packet.role,
-            count,
-        });
+        // Package everything and deliver it. The agency gets the ZIP attached to
+        // the completion email AND a copy stored on the packet, so it stays
+        // reachable from their account after the email is gone.
+        let pkg = null;
+        try {
+            const files = packet.items
+                .filter((i) => i.status === 'signed' && i.signedFileUrl)
+                .map((i) => ({ title: i.title, url: i.signedFileUrl }));
+            if (files.length) {
+                pkg = yield (0, esign_document_service_1.buildPackage)({ caregiverName, role: packet.role, files });
+                packet.packageUrl = pkg.url;
+                packet.packageSentAt = new Date();
+                yield packet.save();
+            }
+        }
+        catch (err) {
+            console.error('[esign] could not build the signed package:', err === null || err === void 0 ? void 0 : err.message);
+        }
+        if (pkg) {
+            yield (0, esign_email_service_1.sendSignedPackageEmail)({
+                agencyId: String(packet.agency),
+                caregiverName,
+                role: packet.role,
+                count,
+                zip: { filename: pkg.fileName, content: pkg.bytes },
+            });
+        }
+        else {
+            yield (0, esign_email_service_1.sendSigningCompleteEmail)({
+                agencyId: String(packet.agency),
+                caregiverName,
+                role: packet.role,
+                count,
+            });
+        }
     }
     return packet;
 });

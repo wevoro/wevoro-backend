@@ -45,6 +45,12 @@ const packetItemSchema = new mongoose_1.Schema({
     /** Audit captured at the moment of signing. */
     signatureIp: { type: String },
     signatureUserAgent: { type: String },
+    /**
+     * The signed artefact: the original with the caregiver's signature stamped
+     * onto it plus a certificate page. This is what the agency receives — the
+     * database record alone is not something anyone can hand to an auditor.
+     */
+    signedFileUrl: { type: String },
 }, { _id: true });
 const signaturePacketSchema = new mongoose_1.Schema({
     offer: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Offer', required: true, index: true },
@@ -60,6 +66,15 @@ const signaturePacketSchema = new mongoose_1.Schema({
      */
     stampName: { type: String, required: true },
     stampId: { type: String, required: true },
+    /**
+     * The caregiver's hand-drawn signature as a PNG data URL, captured once and
+     * reused on every document in the packet — the ticket is explicit that it is
+     * not recreated per document.
+     */
+    signatureImage: { type: String },
+    /** ZIP of every signed document, delivered to the agency on completion. */
+    packageUrl: { type: String },
+    packageSentAt: { type: Date },
     /** Step 1 (upload + approval checkbox) completion — starts the reminder clock. */
     step1CompletedAt: { type: Date, required: true },
     completedAt: { type: Date },

@@ -4,6 +4,7 @@
   "description": "",
   "main": "src/server.ts",
   "scripts": {
+    "build": "tsc",
     "start": "bun run dist/server.js",
     "dev": "bun --watch src/server.ts",
     "lint:check": "bun run eslint --ignore-path .eslintignore --ext .js,.ts .",
