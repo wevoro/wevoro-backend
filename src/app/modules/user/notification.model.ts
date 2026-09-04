@@ -33,6 +33,7 @@ const NotificationSchema = new Schema<any>(
         'esign_reminder',
         'esign_completed',
         'esign_replaced',
+        'esign_added',
       ],
       default: 'general',
     },
