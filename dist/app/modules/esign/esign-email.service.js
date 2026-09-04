@@ -22,7 +22,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendOfferReceivedEmail = exports.sendSigningCompleteEmail = exports.sendDocumentReplacedEmail = exports.sendSignatureReminderEmail = void 0;
+exports.sendOfferReceivedEmail = exports.sendSignedPackageEmail = exports.sendSigningCompleteEmail = exports.sendDocumentReplacedEmail = exports.sendSignatureReminderEmail = void 0;
 const user_model_1 = require("../user/user.model");
 const personal_info_model_1 = require("../user/personal-info.model");
 const sendMail_1 = require("../auth/sendMail");
@@ -118,6 +118,48 @@ const sendSigningCompleteEmail = (params) => __awaiter(void 0, void 0, void 0, f
     yield deliver(agencyId, `${caregiverName} signed all your documents`, html, 'complete');
 });
 exports.sendSigningCompleteEmail = sendSigningCompleteEmail;
+/**
+ * SCRUM-117/118: the completion email, with the signed documents attached.
+ *
+ * The agency previously got told the caregiver had signed but had no way to see
+ * anything. This carries the ZIP of stamped documents, so the paperwork lands
+ * in their inbox the moment it is finished.
+ */
+const sendSignedPackageEmail = (params) => __awaiter(void 0, void 0, void 0, function* () {
+    const { agencyId, caregiverName, role, count, zip } = params;
+    const docWord = count === 1 ? 'document' : 'documents';
+    const html = (0, email_layout_1.renderAlertEmail)({
+        emblem: 'emblem-complete.png',
+        eyebrow: 'SIGNING COMPLETE',
+        accent: email_layout_1.EMAIL_COLORS.green,
+        heading: `${(0, email_layout_1.escapeHtml)(caregiverName)} signed all your documents`,
+        greetingName: yield firstNameOf(agencyId),
+        intro: `${(0, email_layout_1.escapeHtml)(caregiverName)} has completed every ${(0, email_layout_1.escapeHtml)(role)} signing ${docWord}. The signed copies are attached to this email, and are also on their record in your account.`,
+        detailRowsHtml: (0, email_layout_1.emailDetailRow)('CAREGIVER', (0, email_layout_1.escapeHtml)(caregiverName), 0) +
+            (0, email_layout_1.emailDetailRow)('SIGNED', `${count} of ${count} ${docWord}`, 14) +
+            (0, email_layout_1.emailDetailRow)('ATTACHED', (0, email_layout_1.escapeHtml)(zip.filename), 14),
+        cta: 'View caregiver',
+        ctaHref: `${(0, email_layout_1.emailAppUrl)()}/partner/onboardings`,
+        note: 'Each signed document carries a certificate page recording who signed it, when, and from where.',
+        footerLine: AGENCY_FOOTER,
+    });
+    const attachments = [
+        { filename: zip.filename, content: zip.content, contentType: 'application/zip' },
+    ];
+    try {
+        const user = yield user_model_1.User.findById(agencyId).select('email');
+        if (!(user === null || user === void 0 ? void 0 : user.email)) {
+            console.warn(`[esign] no email on record for agency ${agencyId}; package not sent`);
+            return;
+        }
+        yield (0, sendMail_1.sendEmail)(user.email, `${caregiverName} signed all your documents`, html, attachments);
+        console.log(`[esign] signed package emailed to ${user.email} (${zip.filename})`);
+    }
+    catch (err) {
+        console.error(`[esign] package email FAILED for agency ${agencyId}:`, err === null || err === void 0 ? void 0 : err.message);
+    }
+});
+exports.sendSignedPackageEmail = sendSignedPackageEmail;
 /** SCRUM-118: offer-received parity email (in-app existed already). */
 const sendOfferReceivedEmail = (params) => __awaiter(void 0, void 0, void 0, function* () {
     const { caregiverId, agencyName, signCount } = params;

@@ -34,6 +34,7 @@ const NotificationSchema = new mongoose_1.Schema({
             'esign_reminder',
             'esign_completed',
             'esign_replaced',
+            'esign_added',
         ],
         default: 'general',
     },
