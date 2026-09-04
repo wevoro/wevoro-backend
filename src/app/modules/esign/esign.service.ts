@@ -117,6 +117,73 @@ export const getLibrary = async (agencyId: string) => {
   return groups;
 };
 
+/**
+ * A packet is a snapshot of the library taken when the caregiver connected, so
+ * a document uploaded afterwards would never reach anyone already onboarding —
+ * the agency saw two documents in the group while the caregiver was still only
+ * asked to sign one.
+ *
+ * This pushes the missing active documents into a packet. It matches on the
+ * source document id, so a document already present in any state (signed,
+ * pending or outdated) is never issued twice, and a document the agency has
+ * since removed is never reintroduced.
+ *
+ * Returns the documents that were actually added.
+ */
+const reconcilePacketItems = (packet: any, docs: any[]): any[] => {
+  const present = new Set(
+    (packet.items as any[]).map((i) => String(i.signingDocument))
+  );
+  const missing = docs.filter((d) => !present.has(String(d._id)));
+  for (const d of missing) {
+    (packet.items as any[]).push({
+      signingDocument: d._id,
+      title: d.title,
+      fileName: d.fileName,
+      fileUrl: d.fileUrl,
+      version: d.version,
+      status: 'pending',
+    });
+  }
+  return missing;
+};
+
+/**
+ * Issue newly uploaded documents into every packet still open for that role,
+ * mirroring how replaceDocument re-issues a new version. Completed packets are
+ * left alone: reopening finished paperwork is a product decision, not a bug fix.
+ */
+const issueToOpenPackets = async (
+  agencyId: string,
+  role: EsignRole,
+  docs: any[]
+): Promise<number> => {
+  if (!docs.length) return 0;
+  const packets = await SignaturePacket.find({
+    agency: agencyId,
+    role,
+    status: { $ne: 'completed' },
+  });
+  const agencyName = await displayName(agencyId);
+  let notified = 0;
+  for (const packet of packets) {
+    const added = reconcilePacketItems(packet, docs);
+    if (!added.length) continue;
+    await packet.save();
+    notified += 1;
+    await Notification.create({
+      user: packet.caregiver,
+      message:
+        `<strong>${added.length === 1 ? 'A new document needs your signature' : `${added.length} new documents need your signature`}</strong><br />` +
+        `${agencyName} added ${added.length === 1 ? added[0].title : `${added.length} documents`} to your onboarding.`,
+      type: 'esign_added',
+      ctaLink: '/pro/offers',
+      isRead: false,
+    });
+  }
+  return notified;
+};
+
 export const addDocuments = async (
   agencyId: string,
   role: EsignRole,
@@ -165,7 +232,11 @@ export const addDocuments = async (
     });
     accepted.push(doc);
   }
-  return { accepted, rejected };
+
+  // Caregivers already onboarding must receive the new documents too, otherwise
+  // the agency's group and the caregiver's list disagree for ever.
+  const caregiversNotified = await issueToOpenPackets(agencyId, role, accepted);
+  return { accepted, rejected, caregiversNotified };
 };
 
 /**
@@ -332,11 +403,26 @@ export const getOfferContext = async (params: {
   const { offerId, agencyId, caregiverId } = params;
   const role = await caregiverRole(caregiverId);
   const packet = await SignaturePacket.findOne({ offer: offerId, caregiver: caregiverId });
+  const active = await SigningDocument.find({ agency: agencyId, role, status: 'active' }).sort({
+    createdAt: 1,
+  });
+
+  // The offer card lists the packet's items, so reconcile here too — otherwise a
+  // document added after the caregiver connected stays invisible on the card
+  // until they happen to open the signing modal.
+  if (packet && packet.status !== 'completed') {
+    const added = reconcilePacketItems(packet, active);
+    if (added.length) await packet.save();
+  }
+
   const documents = packet
     ? [] // once a packet exists the snapshot is the source of truth
-    : await SigningDocument.find({ agency: agencyId, role, status: 'active' }).select(
-        'title fileName version'
-      );
+    : active.map((d: any) => ({
+        _id: d._id,
+        title: d.title,
+        fileName: d.fileName,
+        version: d.version,
+      }));
   return { role, documents, packet };
 };
 
@@ -352,13 +438,22 @@ export const startPacket = async (params: {
   caregiverId: string;
 }) => {
   const { offerId, agencyId, caregiverId } = params;
-  const existing = await SignaturePacket.findOne({ offer: offerId, caregiver: caregiverId });
-  if (existing) return existing; // resume, never restart
-
   const role = await caregiverRole(caregiverId);
   const docs = await SigningDocument.find({ agency: agencyId, role, status: 'active' }).sort({
     createdAt: 1,
   });
+
+  const existing = await SignaturePacket.findOne({ offer: offerId, caregiver: caregiverId });
+  if (existing) {
+    // Resume, never restart — but reconcile first, so a packet created before
+    // the library grew (or before addDocuments issued new documents) picks up
+    // anything it is missing instead of staying short for ever.
+    if (existing.status !== 'completed') {
+      const added = reconcilePacketItems(existing, docs);
+      if (added.length) await existing.save();
+    }
+    return existing;
+  }
   if (docs.length === 0) return null;
 
   const stampName = await signatureName(caregiverId);
