@@ -13,7 +13,23 @@ import config from '../../../config';
  * RESEND_API_KEY is provisioned in Vercel (preview + production) on the client's
  * Resend account, so on the deployed backend email is sent via Resend.
  */
-export async function sendEmail(to: string, subject: string, html: string) {
+/**
+ * SCRUM-118: attachments are needed to deliver the signed-document ZIP to the
+ * agency. Resend takes base64 content directly; the Gmail SMTP fallback takes a
+ * Buffer, so the caller passes a Buffer and each transport adapts it.
+ */
+export interface MailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+}
+
+export async function sendEmail(
+  to: string,
+  subject: string,
+  html: string,
+  attachments?: MailAttachment[]
+) {
   const resendKey = config.resend_api_key;
 
   // Preferred path: Resend HTTP API (works reliably on serverless).
@@ -26,7 +42,20 @@ export async function sendEmail(to: string, subject: string, html: string) {
           Authorization: `Bearer ${resendKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ from, to, subject, html }),
+        body: JSON.stringify({
+          from,
+          to,
+          subject,
+          html,
+          ...(attachments?.length
+            ? {
+                attachments: attachments.map((a) => ({
+                  filename: a.filename,
+                  content: a.content.toString('base64'),
+                })),
+              }
+            : {}),
+        }),
       });
       if (!res.ok) {
         const body = await res.text();
@@ -65,6 +94,15 @@ export async function sendEmail(to: string, subject: string, html: string) {
     const result = await transporter.sendMail({
       from: config.email,
       to,
+      ...(attachments?.length
+        ? {
+            attachments: attachments.map((a) => ({
+              filename: a.filename,
+              content: a.content,
+              contentType: a.contentType,
+            })),
+          }
+        : {}),
       subject,
       html,
     });

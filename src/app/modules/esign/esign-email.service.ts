@@ -14,7 +14,7 @@
 
 import { User } from '../user/user.model';
 import { PersonalInfo } from '../user/personal-info.model';
-import { sendEmail } from '../auth/sendMail';
+import { sendEmail, MailAttachment } from '../auth/sendMail';
 import {
   EMAIL_COLORS as C,
   emailAppUrl,
@@ -140,6 +140,59 @@ export const sendSigningCompleteEmail = async (params: {
     footerLine: AGENCY_FOOTER,
   });
   await deliver(agencyId, `${caregiverName} signed all your documents`, html, 'complete');
+};
+
+/**
+ * SCRUM-117/118: the completion email, with the signed documents attached.
+ *
+ * The agency previously got told the caregiver had signed but had no way to see
+ * anything. This carries the ZIP of stamped documents, so the paperwork lands
+ * in their inbox the moment it is finished.
+ */
+export const sendSignedPackageEmail = async (params: {
+  agencyId: string;
+  caregiverName: string;
+  role: string;
+  count: number;
+  zip: { filename: string; content: Buffer };
+}): Promise<void> => {
+  const { agencyId, caregiverName, role, count, zip } = params;
+  const docWord = count === 1 ? 'document' : 'documents';
+  const html = renderAlertEmail({
+    emblem: 'emblem-complete.png',
+    eyebrow: 'SIGNING COMPLETE',
+    accent: C.green,
+    heading: `${escapeHtml(caregiverName)} signed all your documents`,
+    greetingName: await firstNameOf(agencyId),
+    intro: `${escapeHtml(caregiverName)} has completed every ${escapeHtml(role)} signing ${docWord}. The signed copies are attached to this email, and are also on their record in your account.`,
+    detailRowsHtml:
+      emailDetailRow('CAREGIVER', escapeHtml(caregiverName), 0) +
+      emailDetailRow('SIGNED', `${count} of ${count} ${docWord}`, 14) +
+      emailDetailRow('ATTACHED', escapeHtml(zip.filename), 14),
+    cta: 'View caregiver',
+    ctaHref: `${emailAppUrl()}/partner/onboardings`,
+    note: 'Each signed document carries a certificate page recording who signed it, when, and from where.',
+    footerLine: AGENCY_FOOTER,
+  });
+  const attachments: MailAttachment[] = [
+    { filename: zip.filename, content: zip.content, contentType: 'application/zip' },
+  ];
+  try {
+    const user = await User.findById(agencyId).select('email');
+    if (!user?.email) {
+      console.warn(`[esign] no email on record for agency ${agencyId}; package not sent`);
+      return;
+    }
+    await sendEmail(
+      user.email,
+      `${caregiverName} signed all your documents`,
+      html,
+      attachments
+    );
+    console.log(`[esign] signed package emailed to ${user.email} (${zip.filename})`);
+  } catch (err: any) {
+    console.error(`[esign] package email FAILED for agency ${agencyId}:`, err?.message);
+  }
 };
 
 /** SCRUM-118: offer-received parity email (in-app existed already). */
