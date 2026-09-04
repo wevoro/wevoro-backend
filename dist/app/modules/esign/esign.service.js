@@ -12,13 +12,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.runSigningReminders = exports.signItem = exports.getMyPackets = exports.startPacket = exports.getOfferContext = exports.restoreDocument = exports.removeDocument = exports.pendingCopiesCount = exports.replaceDocument = exports.addDocuments = exports.getLibrary = exports.reminderTiersHours = void 0;
+exports.runSigningReminders = exports.signItem = exports.getMyPackets = exports.startPacket = exports.getOfferContext = exports.ensureOfferOnConnection = exports.restoreDocument = exports.removeDocument = exports.pendingCopiesCount = exports.replaceDocument = exports.addDocuments = exports.getLibrary = exports.reminderTiersHours = void 0;
 const http_status_1 = __importDefault(require("http-status"));
 const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
 const bunny_upload_1 = require("../../../helpers/bunny-upload");
 const notification_model_1 = require("../user/notification.model");
 const personal_info_model_1 = require("../user/personal-info.model");
 const professional_info_model_1 = require("../user/professional-info.model");
+const offer_model_1 = require("../offer/offer.model");
 const esign_model_1 = require("./esign.model");
 const esign_email_service_1 = require("./esign-email.service");
 /**
@@ -228,6 +229,34 @@ const restoreDocument = (agencyId, documentId) => __awaiter(void 0, void 0, void
     return doc;
 });
 exports.restoreDocument = restoreDocument;
+/**
+ * SCRUM-117/118: an agency downloading a caregiver's credentials IS the
+ * "connection" the ticket and the Figma dev notes talk about ("documents
+ * auto-send when a caregiver connects"). But every signing surface in the
+ * design hangs off an offer, so a connection with no offer had nowhere to show
+ * the documents and nothing was ever sent.
+ *
+ * On the first download we therefore open an offer for that pair, which is what
+ * carries "Documents to be signed" to the caregiver. Idempotent: an agency that
+ * already has an offer with this caregiver never gets a second one, so repeat
+ * downloads are silent.
+ *
+ * Returns the offer when one was created, otherwise null.
+ */
+const ensureOfferOnConnection = (params) => __awaiter(void 0, void 0, void 0, function* () {
+    const { agencyId, caregiverId } = params;
+    const existing = yield offer_model_1.Offer.findOne({ partner: agencyId, pro: caregiverId });
+    if (existing)
+        return null;
+    const offer = yield offer_model_1.Offer.create({
+        partner: agencyId,
+        pro: caregiverId,
+        status: 'pending',
+    });
+    console.log(`[esign] connection offer opened for agency ${agencyId} -> caregiver ${caregiverId}`);
+    return offer;
+});
+exports.ensureOfferOnConnection = ensureOfferOnConnection;
 // ---------------------------------------------------------------------------
 // Caregiver packet (SCRUM-118)
 // ---------------------------------------------------------------------------

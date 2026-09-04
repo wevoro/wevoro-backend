@@ -150,6 +150,20 @@ const logDownload = (params) => __awaiter(void 0, void 0, void 0, function* () {
         catch (err) {
             console.error('Failed to fire credentials-downloaded notification:', err);
         }
+        // SCRUM-117/118: the download IS the connection. Open an offer for the pair
+        // so the agency's signing documents actually reach the caregiver — every
+        // signing surface in the design hangs off an offer, so without this a
+        // connection sent nothing despite the copy promising it does.
+        try {
+            const { ensureOfferOnConnection } = yield Promise.resolve().then(() => __importStar(require('../esign/esign.service')));
+            yield ensureOfferOnConnection({
+                agencyId: params.agencyId,
+                caregiverId: params.caregiverId,
+            });
+        }
+        catch (err) {
+            console.error('Failed to open the connection offer:', err);
+        }
     }
 });
 /**

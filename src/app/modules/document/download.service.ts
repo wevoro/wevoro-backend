@@ -129,6 +129,22 @@ const logDownload = async (params: {
     } catch (err) {
       console.error('Failed to fire credentials-downloaded notification:', err);
     }
+
+    // SCRUM-117/118: the download IS the connection. Open an offer for the pair
+    // so the agency's signing documents actually reach the caregiver — every
+    // signing surface in the design hangs off an offer, so without this a
+    // connection sent nothing despite the copy promising it does.
+    try {
+      const { ensureOfferOnConnection } = await import(
+        '../esign/esign.service'
+      );
+      await ensureOfferOnConnection({
+        agencyId: params.agencyId,
+        caregiverId: params.caregiverId,
+      });
+    } catch (err) {
+      console.error('Failed to open the connection offer:', err);
+    }
   }
 };
 
