@@ -146,6 +146,25 @@ const downloadDocument = catchAsync(async (req: Request, res: Response) => {
 });
 
 // SCRUM-67: Get bulk download package info
+// SCRUM-119: the locked/unlocked file list for the documents modal. Viewing is
+// free, so this returns metadata for every file but a url only once paid.
+const getPacketManifest = catchAsync(async (req: Request, res: Response) => {
+  const { caregiverUserId } = req.params;
+  const agencyId = req.user?._id;
+
+  const result = await DownloadService.getPacketManifest(
+    caregiverUserId,
+    agencyId as string
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Packet manifest retrieved!',
+    data: result,
+  });
+});
+
 const getDownloadPackage = catchAsync(async (req: Request, res: Response) => {
   const { caregiverUserId } = req.params;
   const agencyId = req.user?._id;
@@ -228,6 +247,7 @@ export const DocumentController = {
   removeCredential,
   downloadDocument,
   getDownloadPackage,
+  getPacketManifest,
   requestPrivateAccess,
   updatePrivateAccess,
   getAccessRequests,

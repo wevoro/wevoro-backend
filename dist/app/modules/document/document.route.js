@@ -34,6 +34,9 @@ router.delete('/:documentId/remove-credential', (0, auth_1.default)(user_1.ENUM_
 router.get('/download/:documentId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), document_controller_1.DocumentController.downloadDocument);
 // SCRUM-67: Get bulk download package (partner auth)
 router.get('/download-package/:caregiverUserId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), document_controller_1.DocumentController.getDownloadPackage);
+// SCRUM-119: locked/unlocked file list for the documents modal. Free to view —
+// urls are withheld until the packet is paid for.
+router.get('/packet-manifest/:caregiverUserId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), document_controller_1.DocumentController.getPacketManifest);
 // SCRUM-67: Request private document access (partner auth)
 router.post('/request-private-access/:caregiverUserId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), document_controller_1.DocumentController.requestPrivateAccess);
 // SCRUM-67: Grant or revoke private access (pro auth)

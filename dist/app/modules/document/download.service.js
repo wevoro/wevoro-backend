@@ -53,6 +53,34 @@ const http_status_1 = __importDefault(require("http-status"));
  * private access consent flow, and audit trail logging.
  */
 /**
+ * SCRUM-119/115: the paywall.
+ *
+ * Viewing a caregiver stays free; paying is required to DOWNLOAD their
+ * credential packet. Entitlement is per (agency, caregiver) pair and permanent,
+ * so a re-download never charges twice.
+ *
+ * Deliberately independent of e-signature status (AC #6) — nothing here reads a
+ * signature packet, so a caregiver mid-signature never blocks a sale.
+ *
+ * Throws 402 Payment Required carrying the price, which is what tells the
+ * client to open the payment gate rather than showing a generic error.
+ */
+const requirePacketEntitlement = (agencyId, caregiverId) => __awaiter(void 0, void 0, void 0, function* () {
+    // Imported lazily: the document module is loaded on routes that have nothing
+    // to do with payments, and this keeps the Stripe SDK out of their cold start.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { hasEntitlement } = require('../payment/payment.service');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { getCurrentPriceCents } = require('../pricing/pricing.service');
+    if (yield hasEntitlement(agencyId, caregiverId))
+        return;
+    const priceCents = yield getCurrentPriceCents();
+    const error = new ApiError_1.default(402, 'Payment required to download this credential packet');
+    error.priceCents = priceCents;
+    error.caregiverId = caregiverId;
+    throw error;
+});
+/**
  * Check if an agency has download access to a caregiver's documents.
  * Access requires: share-flow onboarding OR active engagement.
  */
@@ -169,6 +197,9 @@ const downloadDocument = (documentId, agencyId) => __awaiter(void 0, void 0, voi
     if (!hasAccess) {
         throw new ApiError_1.default(http_status_1.default.FORBIDDEN, 'You do not have access to download this document');
     }
+    // SCRUM-119: the packet is paid per caregiver, so an individual file is
+    // covered by the same entitlement as the bulk download.
+    yield requirePacketEntitlement(agencyId, doc.user.toString());
     // Partners can download any document that has a URL (file uploaded)
     // Log the download
     yield logDownload({
@@ -188,6 +219,9 @@ const getDownloadPackage = (caregiverId, agencyId) => __awaiter(void 0, void 0, 
     if (!hasAccess) {
         throw new ApiError_1.default(http_status_1.default.FORBIDDEN, 'You do not have access to this caregiver\'s documents');
     }
+    // SCRUM-119: this is the paywall. It sits after the access check and before
+    // any URL is produced, so an unpaid agency never receives a file link.
+    yield requirePacketEntitlement(agencyId, caregiverId);
     const docs = yield getDownloadableDocuments(caregiverId, agencyId);
     // Log bulk download — skip non-ObjectId entries like the GCHEXS virtual doc
     yield logDownload({
@@ -314,9 +348,45 @@ const getDownloadAuditLog = (caregiverId) => __awaiter(void 0, void 0, void 0, f
         .limit(100);
     return logs;
 });
+/**
+ * SCRUM-119: what the agency sees in the documents modal BEFORE paying.
+ *
+ * Lists every file the caregiver submitted — title, type and size — but returns
+ * a url only once the packet is paid for. That is what makes the locked state
+ * honest: the agency can see exactly what they are buying, and cannot reach the
+ * bytes until they have.
+ *
+ * Viewing is free, so this deliberately does not write a download audit row and
+ * does not fire the connection side effect.
+ */
+const getPacketManifest = (caregiverId, agencyId) => __awaiter(void 0, void 0, void 0, function* () {
+    const hasAccess = yield hasDownloadAccess(agencyId, caregiverId);
+    if (!hasAccess) {
+        throw new ApiError_1.default(http_status_1.default.FORBIDDEN, 'You do not have access to this caregiver\'s documents');
+    }
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { getPacketStatus } = require('../payment/payment.service');
+    const status = yield getPacketStatus({ agencyId, caregiverId });
+    const docs = yield getDownloadableDocuments(caregiverId, agencyId);
+    return Object.assign(Object.assign({}, status), { fileCount: docs.length, documents: docs.map((d) => {
+            var _a, _b;
+            return ({
+                _id: d._id,
+                title: d.title,
+                documentType: d.documentType,
+                reviewStatus: d.reviewStatus,
+                fileSize: (_a = d.fileSize) !== null && _a !== void 0 ? _a : null,
+                mimeType: (_b = d.mimeType) !== null && _b !== void 0 ? _b : null,
+                // The one field the paywall actually withholds.
+                url: status.paid ? d.url : null,
+                locked: !status.paid,
+            });
+        }) });
+});
 exports.DownloadService = {
     downloadDocument,
     getDownloadPackage,
+    getPacketManifest,
     requestPrivateAccess,
     updatePrivateAccess,
     getAccessRequests,

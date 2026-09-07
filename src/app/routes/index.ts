@@ -10,6 +10,8 @@ import { ShiftRoutes } from '../modules/shift/shift.route';
 import { CredentialingRoutes } from '../modules/credentialing/credentialing.route';
 import { CredentialNotificationRoutes } from '../modules/notification/credential-notification.route';
 import { EsignRoutes } from '../modules/esign/esign.route';
+import { PricingRoutes } from '../modules/pricing/pricing.route';
+import { PaymentRoutes } from '../modules/payment/payment.route';
 
 const router = express.Router();
 
@@ -54,6 +56,17 @@ const moduleRoutes = [
     // SCRUM-117/118: e-signature (agency library + caregiver signing)
     path: '/esign',
     route: EsignRoutes,
+  },
+  {
+    // SCRUM-113: per-packet pricing + transaction ledger
+    path: '/pricing',
+    route: PricingRoutes,
+  },
+  {
+    // SCRUM-115: Stripe payments (the webhook is mounted in app.ts, above the
+    // JSON parser, because it needs the raw body)
+    path: '/payment',
+    route: PaymentRoutes,
   },
 ];
 
