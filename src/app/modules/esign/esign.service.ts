@@ -28,11 +28,14 @@ import {
 
 const MAX_DOCS_PER_GROUP = 10; // 2026-08-31 meeting decision
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
-const ALLOWED_MIME = [
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-];
+// PDF only. Word files used to be accepted here, but nothing downstream can
+// sign one: the stamper is pdf-lib, which throws on anything that is not a PDF,
+// so a DOCX was uploaded, sent out, "signed", and produced no document at all.
+// Refusing it at the door is the honest behaviour — the agency finds out while
+// they are still holding the file, not after a caregiver has signed nothing.
+// Accepting Word again means converting to PDF on upload first.
+const ALLOWED_MIME = ['application/pdf'];
+const ACCEPTED_TYPES_COPY = 'Only PDF files are accepted';
 
 /**
  * Reminder escalation tiers, in hours after Step 1 completion. Deliberately
@@ -210,13 +213,13 @@ export const addDocuments = async (
   const rejected: Array<{ fileName: string; reason: string }> = [];
   for (const file of files) {
     if (!ALLOWED_MIME.includes(file.mimetype)) {
-      rejected.push({ fileName: file.originalname, reason: 'Only PDF or DOCX files are accepted' });
+      rejected.push({ fileName: file.originalname, reason: ACCEPTED_TYPES_COPY });
       continue;
     }
     if (file.size > MAX_FILE_BYTES) {
       rejected.push({
         fileName: file.originalname,
-        reason: 'File is larger than 10 MB — upload a smaller PDF or DOCX',
+        reason: 'File is larger than 10 MB — upload a smaller PDF',
       });
       continue;
     }
@@ -252,12 +255,12 @@ export const replaceDocument = async (
   const doc = await SigningDocument.findOne({ _id: documentId, agency: agencyId });
   if (!doc) throw new ApiError(httpStatus.NOT_FOUND, 'Document not found');
   if (!ALLOWED_MIME.includes(file.mimetype)) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'Only PDF or DOCX files are accepted');
+    throw new ApiError(httpStatus.BAD_REQUEST, ACCEPTED_TYPES_COPY);
   }
   if (file.size > MAX_FILE_BYTES) {
     throw new ApiError(
       httpStatus.BAD_REQUEST,
-      'File is larger than 10 MB — upload a smaller PDF or DOCX'
+      'File is larger than 10 MB — upload a smaller PDF'
     );
   }
 
@@ -551,34 +554,53 @@ export const signItem = async (params: {
     packet.signatureImage = drawing;
   }
 
-  item.status = 'signed';
-  item.signedAt = new Date();
-  item.signatureIp = ip;
-  item.signatureUserAgent = userAgent;
+  const signedAt = new Date();
 
-  // Burn the signature onto the document so there is a real artefact to hand
-  // over. A stamping failure must not lose the signature itself, so it is
-  // caught: the item stays signed and the file can be regenerated.
+  // Burn the signature onto the document FIRST, and only record the item as
+  // signed once that produced a file.
+  //
+  // The order matters. This used to mark the item signed and then stamp inside
+  // a try/catch that only logged, so any stamping failure left a document
+  // recorded as legally signed with no artefact behind it — and the completion
+  // ZIP silently omits items with no signedFileUrl, so the agency received a
+  // package quietly missing a document it was told had been signed. A DOCX hit
+  // this every time: uploads accepted it, but the stamper is pdf-lib, which
+  // throws on anything that is not a PDF.
+  //
+  // Nothing is persisted before the stamp succeeds, so a failure here leaves
+  // the packet exactly as it was and the caregiver can simply sign again.
+  let signedFileUrl: string;
+  let signerName: string;
   try {
     const agencyName = await displayName(String(packet.agency));
     // Resolved now, not at startPacket: older packets carry a name captured
     // before the duplicate-email cleanup existed.
-    const signerName = await signatureName(String(packet.caregiver));
-    if (signerName !== packet.stampName) packet.stampName = signerName;
-    item.signedFileUrl = await stampAndStore({
+    signerName = await signatureName(String(packet.caregiver));
+    signedFileUrl = await stampAndStore({
       fileUrl: item.fileUrl,
       title: item.title,
       signatureImage: packet.signatureImage,
       signerName,
       stampId: packet.stampId,
-      signedAt: item.signedAt,
+      signedAt,
       ip,
       userAgent,
       agencyName,
     });
   } catch (err: any) {
     console.error(`[esign] could not stamp ${item.title}:`, err?.message);
+    throw new ApiError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      `We could not apply your signature to "${item.title}". Nothing was signed — please try again, and tell your agency if it keeps failing.`
+    );
   }
+
+  if (signerName !== packet.stampName) packet.stampName = signerName;
+  item.status = 'signed';
+  item.signedAt = signedAt;
+  item.signatureIp = ip;
+  item.signatureUserAgent = userAgent;
+  item.signedFileUrl = signedFileUrl;
 
   const allSigned = (packet.items as any[]).every((i) => i.status !== 'pending');
   if (allSigned) {
