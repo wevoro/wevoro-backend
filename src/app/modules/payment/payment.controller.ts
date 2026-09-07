@@ -68,6 +68,24 @@ export const webhook = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
+/**
+ * Reconcile a transaction against Stripe. The webhook remains the primary
+ * signal; this covers the window before a webhook arrives, and the case where
+ * one never does.
+ */
+export const confirm = catchAsync(async (req: Request, res: Response) => {
+  const result = await PaymentService.confirmFromStripe({
+    transactionId: req.params.transactionId,
+    agencyId: currentUserId(req),
+  });
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Transaction reconciled',
+    data: result,
+  });
+});
+
 /** QA-only: drive a simulated payment to success or failure. */
 export const simulate = catchAsync(async (req: Request, res: Response) => {
   const outcome = req.body?.outcome;

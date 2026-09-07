@@ -23,6 +23,14 @@ router.post(
   PaymentController.checkout
 );
 
+// Reconcile against Stripe. Server-to-Stripe, so it is not a client claim —
+// it covers the gap before a webhook lands, and the case where one is lost.
+router.post(
+  '/confirm/:transactionId',
+  auth(ENUM_USER_ROLE.PARTNER),
+  PaymentController.confirm
+);
+
 router.get('/my-transactions', auth(ENUM_USER_ROLE.PARTNER), PaymentController.myTransactions);
 
 // QA only. The service refuses this outright once Stripe is configured.

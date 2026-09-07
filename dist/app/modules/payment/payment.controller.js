@@ -35,7 +35,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.myTransactions = exports.simulate = exports.webhook = exports.checkout = exports.packetStatus = void 0;
+exports.myTransactions = exports.simulate = exports.confirm = exports.webhook = exports.checkout = exports.packetStatus = void 0;
 const http_status_1 = __importDefault(require("http-status"));
 const catchAsync_1 = __importDefault(require("../../../shared/catchAsync"));
 const sendResponse_1 = __importDefault(require("../../../shared/sendResponse"));
@@ -101,6 +101,23 @@ const webhook = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 exports.webhook = webhook;
+/**
+ * Reconcile a transaction against Stripe. The webhook remains the primary
+ * signal; this covers the window before a webhook arrives, and the case where
+ * one never does.
+ */
+exports.confirm = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const result = yield PaymentService.confirmFromStripe({
+        transactionId: req.params.transactionId,
+        agencyId: currentUserId(req),
+    });
+    (0, sendResponse_1.default)(res, {
+        statusCode: http_status_1.default.OK,
+        success: true,
+        message: 'Transaction reconciled',
+        data: result,
+    });
+}));
 /** QA-only: drive a simulated payment to success or failure. */
 exports.simulate = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;

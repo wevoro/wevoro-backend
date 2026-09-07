@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getMyTransactions = exports.markDelivered = exports.simulate = exports.handleWebhook = exports.markFailed = exports.markPaid = exports.createCheckout = exports.getPacketStatus = exports.hasEntitlement = exports.findEntitlement = exports.isStripeConfigured = void 0;
+exports.getMyTransactions = exports.markDelivered = exports.simulate = exports.confirmFromStripe = exports.handleWebhook = exports.markFailed = exports.markPaid = exports.createCheckout = exports.getPacketStatus = exports.hasEntitlement = exports.findEntitlement = exports.isStripeConfigured = void 0;
 const http_status_1 = __importDefault(require("http-status"));
 const stripe_1 = __importDefault(require("stripe"));
 const config_1 = __importDefault(require("../../../config"));
@@ -288,6 +288,49 @@ const handleWebhook = (rawBody, signature) => __awaiter(void 0, void 0, void 0, 
     return { received: true, type: event.type };
 });
 exports.handleWebhook = handleWebhook;
+/**
+ * Ask Stripe directly what happened to a transaction's PaymentIntent.
+ *
+ * This is NOT the client telling us it paid — it is our server asking Stripe,
+ * which is the same authority the webhook speaks with. It exists for two
+ * reasons: the webhook secret may not be configured yet, and in production
+ * webhooks are occasionally delayed or dropped, which would otherwise strand a
+ * paying agency on the processing screen.
+ *
+ * Safe to call repeatedly: markPaid and markFailed are both idempotent.
+ */
+const confirmFromStripe = (params) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    const transaction = yield pricing_model_1.PacketTransaction.findOne({
+        _id: params.transactionId,
+        agency: params.agencyId,
+    });
+    if (!transaction)
+        throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'Transaction not found');
+    if (transaction.status === 'paid')
+        return transaction;
+    const stripe = stripeClient();
+    if (!stripe || !transaction.stripePaymentIntentId)
+        return transaction;
+    const intent = yield stripe.paymentIntents.retrieve(transaction.stripePaymentIntentId);
+    if (intent.status === 'succeeded') {
+        return (0, exports.markPaid)({
+            transactionId: String(transaction._id),
+            eventId: `confirm_${intent.id}`,
+            paymentIntentId: intent.id,
+        });
+    }
+    if (intent.status === 'canceled' || intent.last_payment_error) {
+        return (0, exports.markFailed)({
+            transactionId: String(transaction._id),
+            eventId: `confirm_${intent.id}_${intent.status}`,
+            message: ((_a = intent.last_payment_error) === null || _a === void 0 ? void 0 : _a.message) || 'Card declined',
+        });
+    }
+    // Still in flight — leave it pending and let the caller poll again.
+    return transaction;
+});
+exports.confirmFromStripe = confirmFromStripe;
 /**
  * QA-only state driver. Refuses outright once Stripe is configured, so it
  * cannot be used to bypass a real payment.
