@@ -19,6 +19,42 @@ import httpStatus from 'http-status';
  */
 
 /**
+ * SCRUM-119/115: the paywall.
+ *
+ * Viewing a caregiver stays free; paying is required to DOWNLOAD their
+ * credential packet. Entitlement is per (agency, caregiver) pair and permanent,
+ * so a re-download never charges twice.
+ *
+ * Deliberately independent of e-signature status (AC #6) — nothing here reads a
+ * signature packet, so a caregiver mid-signature never blocks a sale.
+ *
+ * Throws 402 Payment Required carrying the price, which is what tells the
+ * client to open the payment gate rather than showing a generic error.
+ */
+const requirePacketEntitlement = async (
+  agencyId: string,
+  caregiverId: string
+): Promise<void> => {
+  // Imported lazily: the document module is loaded on routes that have nothing
+  // to do with payments, and this keeps the Stripe SDK out of their cold start.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { hasEntitlement } = require('../payment/payment.service');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { getCurrentPriceCents } = require('../pricing/pricing.service');
+
+  if (await hasEntitlement(agencyId, caregiverId)) return;
+
+  const priceCents = await getCurrentPriceCents();
+  const error: any = new ApiError(
+    402,
+    'Payment required to download this credential packet'
+  );
+  error.priceCents = priceCents;
+  error.caregiverId = caregiverId;
+  throw error;
+};
+
+/**
  * Check if an agency has download access to a caregiver's documents.
  * Access requires: share-flow onboarding OR active engagement.
  */
@@ -170,6 +206,10 @@ const downloadDocument = async (
     throw new ApiError(httpStatus.FORBIDDEN, 'You do not have access to download this document');
   }
 
+  // SCRUM-119: the packet is paid per caregiver, so an individual file is
+  // covered by the same entitlement as the bulk download.
+  await requirePacketEntitlement(agencyId, doc.user.toString());
+
   // Partners can download any document that has a URL (file uploaded)
 
   // Log the download
@@ -195,6 +235,10 @@ const getDownloadPackage = async (
   if (!hasAccess) {
     throw new ApiError(httpStatus.FORBIDDEN, 'You do not have access to this caregiver\'s documents');
   }
+
+  // SCRUM-119: this is the paywall. It sits after the access check and before
+  // any URL is produced, so an unpaid agency never receives a file link.
+  await requirePacketEntitlement(agencyId, caregiverId);
 
   const docs = await getDownloadableDocuments(caregiverId, agencyId);
 
@@ -345,9 +389,56 @@ const getDownloadAuditLog = async (caregiverId: string): Promise<any[]> => {
   return logs;
 };
 
+/**
+ * SCRUM-119: what the agency sees in the documents modal BEFORE paying.
+ *
+ * Lists every file the caregiver submitted — title, type and size — but returns
+ * a url only once the packet is paid for. That is what makes the locked state
+ * honest: the agency can see exactly what they are buying, and cannot reach the
+ * bytes until they have.
+ *
+ * Viewing is free, so this deliberately does not write a download audit row and
+ * does not fire the connection side effect.
+ */
+const getPacketManifest = async (
+  caregiverId: string,
+  agencyId: string
+): Promise<any> => {
+  const hasAccess = await hasDownloadAccess(agencyId, caregiverId);
+  if (!hasAccess) {
+    throw new ApiError(
+      httpStatus.FORBIDDEN,
+      'You do not have access to this caregiver\'s documents'
+    );
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { getPacketStatus } = require('../payment/payment.service');
+  const status = await getPacketStatus({ agencyId, caregiverId });
+
+  const docs = await getDownloadableDocuments(caregiverId, agencyId);
+
+  return {
+    ...status,
+    fileCount: docs.length,
+    documents: docs.map((d: any) => ({
+      _id: d._id,
+      title: d.title,
+      documentType: d.documentType,
+      reviewStatus: d.reviewStatus,
+      fileSize: d.fileSize ?? null,
+      mimeType: d.mimeType ?? null,
+      // The one field the paywall actually withholds.
+      url: status.paid ? d.url : null,
+      locked: !status.paid,
+    })),
+  };
+};
+
 export const DownloadService = {
   downloadDocument,
   getDownloadPackage,
+  getPacketManifest,
   requestPrivateAccess,
   updatePrivateAccess,
   getAccessRequests,

@@ -61,6 +61,19 @@ export default {
   // leftover pointing at a different product.
   app_public_url: process.env.APP_PUBLIC_URL,
   openai_api_key: process.env.OPENAI_API_KEY,
+  // SCRUM-115: Stripe. All three are absent until the client provisions the
+  // account; the payment service reports "not configured" rather than failing
+  // obscurely when they are.
+  stripe: {
+    secret_key: process.env.STRIPE_SECRET_KEY,
+    webhook_secret: process.env.STRIPE_WEBHOOK_SECRET,
+    publishable_key: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
+  },
+  // QA-only escape hatch so the seven payment states can be exercised before
+  // Stripe credentials exist. Deliberately requires BOTH an explicit opt-in and
+  // the absence of a real Stripe key, so it can never silently become a payment
+  // bypass in production.
+  payments_test_mode: process.env.PAYMENTS_TEST_MODE === 'true',
   // SCRUM-87/88: platform-wide credentialing-only beta flag. Defaults ON unless
   // explicitly set to 'false', so the beta stays safe if the env var is missing.
   credentialing_mode: process.env.CREDENTIALING_MODE !== 'false',

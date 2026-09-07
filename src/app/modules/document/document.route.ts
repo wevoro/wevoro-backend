@@ -72,6 +72,14 @@ router.get(
   DocumentController.getDownloadPackage
 );
 
+// SCRUM-119: locked/unlocked file list for the documents modal. Free to view —
+// urls are withheld until the packet is paid for.
+router.get(
+  '/packet-manifest/:caregiverUserId',
+  auth(ENUM_USER_ROLE.PARTNER),
+  DocumentController.getPacketManifest
+);
+
 // SCRUM-67: Request private document access (partner auth)
 router.post(
   '/request-private-access/:caregiverUserId',

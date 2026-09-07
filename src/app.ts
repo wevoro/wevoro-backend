@@ -15,6 +15,23 @@ app.use(cors());
 app.use(cors());
 app.use(cookieParser());
 
+// SCRUM-115: the Stripe webhook must be mounted BEFORE the JSON parser below.
+// Signature verification hashes the exact bytes Stripe sent, and once
+// express.json() has parsed and discarded the raw body there is nothing left to
+// verify against. This is scoped to the single webhook path, so every other
+// route still gets the parsed body it expects.
+app.post(
+  '/api/v1/payment/webhook',
+  express.raw({ type: 'application/json' }),
+  (req, res) => {
+    // Imported lazily so this file does not pull the Stripe SDK into every
+    // route's cold start.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { webhook } = require('./app/modules/payment/payment.controller');
+    return webhook(req, res);
+  }
+);
+
 //parser
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: false }));

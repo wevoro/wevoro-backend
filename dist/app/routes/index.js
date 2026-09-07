@@ -14,6 +14,8 @@ const shift_route_1 = require("../modules/shift/shift.route");
 const credentialing_route_1 = require("../modules/credentialing/credentialing.route");
 const credential_notification_route_1 = require("../modules/notification/credential-notification.route");
 const esign_route_1 = require("../modules/esign/esign.route");
+const pricing_route_1 = require("../modules/pricing/pricing.route");
+const payment_route_1 = require("../modules/payment/payment.route");
 const router = express_1.default.Router();
 const moduleRoutes = [
     {
@@ -56,6 +58,17 @@ const moduleRoutes = [
         // SCRUM-117/118: e-signature (agency library + caregiver signing)
         path: '/esign',
         route: esign_route_1.EsignRoutes,
+    },
+    {
+        // SCRUM-113: per-packet pricing + transaction ledger
+        path: '/pricing',
+        route: pricing_route_1.PricingRoutes,
+    },
+    {
+        // SCRUM-115: Stripe payments (the webhook is mounted in app.ts, above the
+        // JSON parser, because it needs the raw body)
+        path: '/payment',
+        route: payment_route_1.PaymentRoutes,
     },
 ];
 moduleRoutes.forEach(route => router.use(route.path, route.route));
