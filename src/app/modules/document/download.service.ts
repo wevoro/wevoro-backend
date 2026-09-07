@@ -165,22 +165,28 @@ const logDownload = async (params: {
     } catch (err) {
       console.error('Failed to fire credentials-downloaded notification:', err);
     }
+  }
 
-    // SCRUM-117/118: the download IS the connection. Open an offer for the pair
-    // so the agency's signing documents actually reach the caregiver — every
-    // signing surface in the design hangs off an offer, so without this a
-    // connection sent nothing despite the copy promising it does.
-    try {
-      const { ensureOfferOnConnection } = await import(
-        '../esign/esign.service'
-      );
-      await ensureOfferOnConnection({
-        agencyId: params.agencyId,
-        caregiverId: params.caregiverId,
-      });
-    } catch (err) {
-      console.error('Failed to open the connection offer:', err);
-    }
+  // SCRUM-117/118: the download IS the connection. Open an offer for the pair
+  // so the agency's signing documents actually reach the caregiver — every
+  // signing surface in the design hangs off an offer, so without this a
+  // connection sent nothing despite the copy promising it does.
+  //
+  // Deliberately OUTSIDE the first-download branch. Every pair that connected
+  // before this shipped already has audit rows, so a first-download gate would
+  // exclude exactly those pairs for ever: the agency would keep seeing "sent
+  // automatically on connection" while the caregiver was never asked to sign
+  // anything. ensureOfferOnConnection is idempotent — it returns early when an
+  // offer already exists — so running it on every download costs one indexed
+  // lookup and backfills the pairs the gate had stranded.
+  try {
+    const { ensureOfferOnConnection } = await import('../esign/esign.service');
+    await ensureOfferOnConnection({
+      agencyId: params.agencyId,
+      caregiverId: params.caregiverId,
+    });
+  } catch (err) {
+    console.error('Failed to open the connection offer:', err);
   }
 };
 
