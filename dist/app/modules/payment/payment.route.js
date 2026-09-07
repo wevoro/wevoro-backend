@@ -39,6 +39,9 @@ const router = express_1.default.Router();
 // parser, at /api/v1/payment/webhook.
 router.get('/packet/:caregiverId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), PaymentController.packetStatus);
 router.post('/checkout/:caregiverId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), PaymentController.checkout);
+// Reconcile against Stripe. Server-to-Stripe, so it is not a client claim —
+// it covers the gap before a webhook lands, and the case where one is lost.
+router.post('/confirm/:transactionId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), PaymentController.confirm);
 router.get('/my-transactions', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), PaymentController.myTransactions);
 // QA only. The service refuses this outright once Stripe is configured.
 router.post('/simulate/:transactionId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), PaymentController.simulate);

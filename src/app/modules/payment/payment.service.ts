@@ -310,6 +310,51 @@ export const handleWebhook = async (rawBody: Buffer, signature: string) => {
 };
 
 /**
+ * Ask Stripe directly what happened to a transaction's PaymentIntent.
+ *
+ * This is NOT the client telling us it paid — it is our server asking Stripe,
+ * which is the same authority the webhook speaks with. It exists for two
+ * reasons: the webhook secret may not be configured yet, and in production
+ * webhooks are occasionally delayed or dropped, which would otherwise strand a
+ * paying agency on the processing screen.
+ *
+ * Safe to call repeatedly: markPaid and markFailed are both idempotent.
+ */
+export const confirmFromStripe = async (params: {
+  transactionId: string;
+  agencyId: string;
+}) => {
+  const transaction = await PacketTransaction.findOne({
+    _id: params.transactionId,
+    agency: params.agencyId,
+  });
+  if (!transaction) throw new ApiError(httpStatus.NOT_FOUND, 'Transaction not found');
+  if (transaction.status === 'paid') return transaction;
+
+  const stripe = stripeClient();
+  if (!stripe || !transaction.stripePaymentIntentId) return transaction;
+
+  const intent = await stripe.paymentIntents.retrieve(transaction.stripePaymentIntentId);
+
+  if (intent.status === 'succeeded') {
+    return markPaid({
+      transactionId: String(transaction._id),
+      eventId: `confirm_${intent.id}`,
+      paymentIntentId: intent.id,
+    });
+  }
+  if (intent.status === 'canceled' || intent.last_payment_error) {
+    return markFailed({
+      transactionId: String(transaction._id),
+      eventId: `confirm_${intent.id}_${intent.status}`,
+      message: intent.last_payment_error?.message || 'Card declined',
+    });
+  }
+  // Still in flight — leave it pending and let the caller poll again.
+  return transaction;
+};
+
+/**
  * QA-only state driver. Refuses outright once Stripe is configured, so it
  * cannot be used to bypass a real payment.
  */
