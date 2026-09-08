@@ -103,8 +103,14 @@ const getUserDocuments = async (
 ): Promise<any> => {
   const result = await Documents.find({ user: userId });
   // SCRUM-99: gate sensitive credentials for agencies (owner/admin see all).
-  const { filterVisibleDocuments } = await import('./credential-visibility');
-  return filterVisibleDocuments(result, requesterId, userId);
+  const { filterVisibleDocuments, withPaywalledUrls } = await import(
+    './credential-visibility'
+  );
+  const visible = await filterVisibleDocuments(result, requesterId, userId);
+  // SCRUM-119: and withhold the file link itself until the packet is paid for.
+  // Without this the free credential list handed back the same CDN urls the
+  // paid download sells.
+  return withPaywalledUrls(visible, requesterId, userId);
 };
 
 const deleteDocument = async (
@@ -306,7 +312,10 @@ const reviewDocument = async (
   return result;
 };
 
-const getCredentialStatus = async (userId: string): Promise<any> => {
+const getCredentialStatus = async (
+  userId: string,
+  requesterId?: string
+): Promise<any> => {
   // SCRUM-60: [Role] Certificate label is derived from professionalInfo.role at view time.
   const { ProfessionalInfo } = await import('../user/professional-info.model');
   const profInfo: any = await ProfessionalInfo.findOne({ user: userId }).lean();
@@ -326,7 +335,17 @@ const getCredentialStatus = async (userId: string): Promise<any> => {
     ...CREDENTIAL_META[key],
   }));
 
-  const documents = await Documents.find({ user: userId });
+  const all = await Documents.find({ user: userId });
+  // This view took no requester at all, so it applied neither the SCRUM-99
+  // tier gate nor the SCRUM-119 paywall while still returning doc.url — the
+  // agency's "View Credential" link served the very file the paid download
+  // sells. Both gates are applied here now, exactly as getUserDocuments does.
+  const { filterVisibleDocuments, withPaywalledUrls } = await import(
+    './credential-visibility'
+  );
+  const visible = await filterVisibleDocuments(all, requesterId, userId);
+  const documents = await withPaywalledUrls(visible, requesterId, userId);
+
   const docsByType: Record<string, any> = {};
   documents.forEach((doc: any) => {
     docsByType[doc.documentType] = doc;

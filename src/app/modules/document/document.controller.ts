@@ -82,6 +82,12 @@ const reviewDocument = catchAsync(async (req: Request, res: Response) => {
     requestReplacement,
     aiSuggestedReason,
     adminAgreedWithAi,
+    // SCRUM-109: confirm a credential that has no fixed renewal date. Dropped
+    // here until now, so the service never saw it and the "expiry is required"
+    // guard threw on every never-expiring credential — the checkbox, the model
+    // field and the caregiver-facing "No official expiration date" copy all
+    // existed but were unreachable.
+    hasNoExpiration,
   } = req.body;
 
   const result = await DocumentService.reviewDocument(documentId, {
@@ -95,6 +101,7 @@ const reviewDocument = catchAsync(async (req: Request, res: Response) => {
     requestReplacement,
     aiSuggestedReason,
     adminAgreedWithAi,
+    hasNoExpiration,
     reviewedBy: (req as any).user?._id,
   });
 
@@ -108,7 +115,12 @@ const reviewDocument = catchAsync(async (req: Request, res: Response) => {
 
 const getCredentialStatus = catchAsync(async (req: Request, res: Response) => {
   const { userId } = req.params;
-  const result = await DocumentService.getCredentialStatus(userId);
+  // SCRUM-99 / SCRUM-119: pass the requester, so this view is gated to the
+  // caller's tier and withholds the file url until the packet is paid for.
+  const result = await DocumentService.getCredentialStatus(
+    userId,
+    req.user?._id as string
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

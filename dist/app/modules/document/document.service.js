@@ -114,8 +114,12 @@ const uploadDocument = (file, payload, documentId, userId) => __awaiter(void 0, 
 const getUserDocuments = (userId, requesterId) => __awaiter(void 0, void 0, void 0, function* () {
     const result = yield documents_model_1.Documents.find({ user: userId });
     // SCRUM-99: gate sensitive credentials for agencies (owner/admin see all).
-    const { filterVisibleDocuments } = yield Promise.resolve().then(() => __importStar(require('./credential-visibility')));
-    return filterVisibleDocuments(result, requesterId, userId);
+    const { filterVisibleDocuments, withPaywalledUrls } = yield Promise.resolve().then(() => __importStar(require('./credential-visibility')));
+    const visible = yield filterVisibleDocuments(result, requesterId, userId);
+    // SCRUM-119: and withhold the file link itself until the packet is paid for.
+    // Without this the free credential list handed back the same CDN urls the
+    // paid download sells.
+    return withPaywalledUrls(visible, requesterId, userId);
 });
 const deleteDocument = (userId, documentId) => __awaiter(void 0, void 0, void 0, function* () {
     const result = yield documents_model_1.Documents.findByIdAndDelete(documentId);
@@ -259,7 +263,7 @@ const reviewDocument = (documentId, payload) => __awaiter(void 0, void 0, void 0
     }
     return result;
 });
-const getCredentialStatus = (userId) => __awaiter(void 0, void 0, void 0, function* () {
+const getCredentialStatus = (userId, requesterId) => __awaiter(void 0, void 0, void 0, function* () {
     // SCRUM-60: [Role] Certificate label is derived from professionalInfo.role at view time.
     const { ProfessionalInfo } = yield Promise.resolve().then(() => __importStar(require('../user/professional-info.model')));
     const profInfo = yield ProfessionalInfo.findOne({ user: userId }).lean();
@@ -274,7 +278,14 @@ const getCredentialStatus = (userId) => __awaiter(void 0, void 0, void 0, functi
         tb_tests: { label: 'TB Test', category: 'medical' },
     };
     const REQUIRED_CREDENTIALS = credentials_1.REQUIRED_CREDENTIAL_KEYS.map(key => (Object.assign({ key }, CREDENTIAL_META[key])));
-    const documents = yield documents_model_1.Documents.find({ user: userId });
+    const all = yield documents_model_1.Documents.find({ user: userId });
+    // This view took no requester at all, so it applied neither the SCRUM-99
+    // tier gate nor the SCRUM-119 paywall while still returning doc.url — the
+    // agency's "View Credential" link served the very file the paid download
+    // sells. Both gates are applied here now, exactly as getUserDocuments does.
+    const { filterVisibleDocuments, withPaywalledUrls } = yield Promise.resolve().then(() => __importStar(require('./credential-visibility')));
+    const visible = yield filterVisibleDocuments(all, requesterId, userId);
+    const documents = yield withPaywalledUrls(visible, requesterId, userId);
     const docsByType = {};
     documents.forEach((doc) => {
         docsByType[doc.documentType] = doc;

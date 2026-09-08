@@ -13,6 +13,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runSigningReminders = exports.signItem = exports.getMyPackets = exports.startPacket = exports.getOfferContext = exports.ensureOfferOnConnection = exports.restoreDocument = exports.removeDocument = exports.pendingCopiesCount = exports.replaceDocument = exports.addDocuments = exports.getLibrary = exports.signatureName = exports.reminderTiersHours = void 0;
+const fs_1 = __importDefault(require("fs"));
 const http_status_1 = __importDefault(require("http-status"));
 const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
 const bunny_upload_1 = require("../../../helpers/bunny-upload");
@@ -44,6 +45,36 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
 // Accepting Word again means converting to PDF on upload first.
 const ALLOWED_MIME = ['application/pdf'];
 const ACCEPTED_TYPES_COPY = 'Only PDF files are accepted';
+/**
+ * The part's Content-Type is only ever what the client declared. A Word file
+ * renamed to .pdf arrives as application/pdf straight from the browser's own
+ * file picker, so the header check alone still let a DOCX into the library —
+ * where it was auto-issued to caregivers and then failed to sign, for ever.
+ *
+ * Trust the bytes instead: every PDF opens with the %PDF- signature, which is
+ * exactly what pdf-lib demands when the document is later stamped.
+ */
+const isPdf = (file) => {
+    if (!ALLOWED_MIME.includes(file.mimetype))
+        return false;
+    if (!file.path)
+        return false;
+    let fd;
+    try {
+        fd = fs_1.default.openSync(file.path, 'r');
+        const head = Buffer.alloc(5);
+        fs_1.default.readSync(fd, head, 0, 5, 0);
+        return head.toString('latin1') === '%PDF-';
+    }
+    catch (_a) {
+        // Unreadable temp file — refuse rather than admit something unverified.
+        return false;
+    }
+    finally {
+        if (fd !== undefined)
+            fs_1.default.closeSync(fd);
+    }
+};
 /**
  * Reminder escalation tiers, in hours after Step 1 completion. Deliberately
  * configurable via env (ESIGN_REMINDER_HOURS="2,24,72") so the cadence can be
@@ -190,7 +221,7 @@ const addDocuments = (agencyId, role, files) => __awaiter(void 0, void 0, void 0
     const accepted = [];
     const rejected = [];
     for (const file of files) {
-        if (!ALLOWED_MIME.includes(file.mimetype)) {
+        if (!isPdf(file)) {
             rejected.push({ fileName: file.originalname, reason: ACCEPTED_TYPES_COPY });
             continue;
         }
@@ -228,7 +259,7 @@ const replaceDocument = (agencyId, documentId, file) => __awaiter(void 0, void 0
     const doc = yield esign_model_1.SigningDocument.findOne({ _id: documentId, agency: agencyId });
     if (!doc)
         throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'Document not found');
-    if (!ALLOWED_MIME.includes(file.mimetype)) {
+    if (!isPdf(file)) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, ACCEPTED_TYPES_COPY);
     }
     if (file.size > MAX_FILE_BYTES) {

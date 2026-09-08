@@ -1,4 +1,27 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -23,6 +46,7 @@ const personal_info_model_1 = require("../user/personal-info.model");
 const professional_info_model_1 = require("../user/professional-info.model");
 const documents_model_1 = require("../document/documents.model");
 const user_model_1 = require("../user/user.model");
+const user_1 = require("../../../enums/user");
 /**
  * SCRUM-115: Stripe payments for credential packets.
  *
@@ -97,10 +121,18 @@ const getPacketStatus = (params) => __awaiter(void 0, void 0, void 0, function* 
     // knows how much they are getting before paying. Counted here rather than
     // left to the manifest call, because the gate can be opened without the
     // documents modal ever being loaded.
-    const fileCount = yield documents_model_1.Documents.countDocuments({
+    //
+    // SCRUM-99: counted from the same visible set the manifest shows and the
+    // download actually releases. A raw count ignored the sensitive-credential
+    // tier gate, so an un-Confirmed agency was quoted files it would never
+    // receive — "4 files" on the buy screen, 2 in the delivered package.
+    const allDocs = yield documents_model_1.Documents.find({
         user: caregiverId,
         url: { $exists: true, $nin: [null, ''] },
     });
+    const { filterVisibleDocuments } = yield Promise.resolve().then(() => __importStar(require('../document/credential-visibility')));
+    const fileCount = (yield filterVisibleDocuments(allDocs, agencyId, caregiverId))
+        .length;
     const city = (_a = info === null || info === void 0 ? void 0 : info.address) === null || _a === void 0 ? void 0 : _a.city;
     const state = (_b = info === null || info === void 0 ? void 0 : info.address) === null || _b === void 0 ? void 0 : _b.state;
     return {
@@ -132,9 +164,15 @@ exports.getPacketStatus = getPacketStatus;
  */
 const createCheckout = (params) => __awaiter(void 0, void 0, void 0, function* () {
     const { agencyId, caregiverId } = params;
-    const caregiver = yield user_model_1.User.findById(caregiverId).select('_id');
-    if (!caregiver)
+    // A packet is a caregiver's credentials. Anything else — another agency, an
+    // admin — is not a purchasable product: buying one wrote a nonsense row into
+    // the founder's ledger and granted a permanent download entitlement over an
+    // account that sells nothing. The message is deliberately unchanged so the
+    // endpoint does not confirm which ids are real accounts.
+    const caregiver = yield user_model_1.User.findById(caregiverId).select('_id role');
+    if (!caregiver || caregiver.role !== user_1.ENUM_USER_ROLE.PRO) {
         throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'Caregiver not found');
+    }
     // Rule 2: already owned — no Stripe call, no new transaction.
     const owned = yield (0, exports.findEntitlement)(agencyId, caregiverId);
     if (owned) {

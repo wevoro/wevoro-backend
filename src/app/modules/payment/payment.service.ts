@@ -8,6 +8,7 @@ import { PersonalInfo } from '../user/personal-info.model';
 import { ProfessionalInfo } from '../user/professional-info.model';
 import { Documents } from '../document/documents.model';
 import { User } from '../user/user.model';
+import { ENUM_USER_ROLE } from '../../../enums/user';
 
 /**
  * SCRUM-115: Stripe payments for credential packets.
@@ -93,10 +94,20 @@ export const getPacketStatus = async (params: {
   // knows how much they are getting before paying. Counted here rather than
   // left to the manifest call, because the gate can be opened without the
   // documents modal ever being loaded.
-  const fileCount = await Documents.countDocuments({
+  //
+  // SCRUM-99: counted from the same visible set the manifest shows and the
+  // download actually releases. A raw count ignored the sensitive-credential
+  // tier gate, so an un-Confirmed agency was quoted files it would never
+  // receive — "4 files" on the buy screen, 2 in the delivered package.
+  const allDocs = await Documents.find({
     user: caregiverId,
     url: { $exists: true, $nin: [null, ''] },
   });
+  const { filterVisibleDocuments } = await import(
+    '../document/credential-visibility'
+  );
+  const fileCount = (await filterVisibleDocuments(allDocs, agencyId, caregiverId))
+    .length;
 
   const city = (info as any)?.address?.city;
   const state = (info as any)?.address?.state;
@@ -134,8 +145,15 @@ export const createCheckout = async (params: {
 }) => {
   const { agencyId, caregiverId } = params;
 
-  const caregiver = await User.findById(caregiverId).select('_id');
-  if (!caregiver) throw new ApiError(httpStatus.NOT_FOUND, 'Caregiver not found');
+  // A packet is a caregiver's credentials. Anything else — another agency, an
+  // admin — is not a purchasable product: buying one wrote a nonsense row into
+  // the founder's ledger and granted a permanent download entitlement over an
+  // account that sells nothing. The message is deliberately unchanged so the
+  // endpoint does not confirm which ids are real accounts.
+  const caregiver = await User.findById(caregiverId).select('_id role');
+  if (!caregiver || caregiver.role !== ENUM_USER_ROLE.PRO) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'Caregiver not found');
+  }
 
   // Rule 2: already owned — no Stripe call, no new transaction.
   const owned = await findEntitlement(agencyId, caregiverId);
