@@ -20,6 +20,7 @@ const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
 const pricing_model_1 = require("../pricing/pricing.model");
 const pricing_service_1 = require("../pricing/pricing.service");
 const personal_info_model_1 = require("../user/personal-info.model");
+const professional_info_model_1 = require("../user/professional-info.model");
 const user_model_1 = require("../user/user.model");
 /**
  * SCRUM-115: Stripe payments for credential packets.
@@ -78,22 +79,33 @@ exports.hasEntitlement = hasEntitlement;
  * Never gated on e-signature — a caregiver mid-signature must not block a sale.
  */
 const getPacketStatus = (params) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b;
+    var _a, _b, _c, _d;
     const { agencyId, caregiverId } = params;
-    const [priceCents, entitlement, caregiverName] = yield Promise.all([
+    const [priceCents, entitlement, caregiverName, info, prof] = yield Promise.all([
         (0, pricing_service_1.getCurrentPriceCents)(),
         (0, exports.findEntitlement)(agencyId, caregiverId),
         displayName(caregiverId),
+        // The payment screen shows the caregiver's photo, role and city so the
+        // agency can see who they are paying for. Sourced here rather than passed
+        // in by each caller, so every surface that opens the gate shows the same
+        // thing instead of a half-filled card.
+        personal_info_model_1.PersonalInfo.findOne({ user: caregiverId }).select('image address'),
+        professional_info_model_1.ProfessionalInfo.findOne({ user: caregiverId }).select('role'),
     ]);
+    const city = (_a = info === null || info === void 0 ? void 0 : info.address) === null || _a === void 0 ? void 0 : _a.city;
+    const state = (_b = info === null || info === void 0 ? void 0 : info.address) === null || _b === void 0 ? void 0 : _b.state;
     return {
         caregiverId,
         caregiverName,
+        caregiverImage: (info === null || info === void 0 ? void 0 : info.image) || null,
+        caregiverRole: (prof === null || prof === void 0 ? void 0 : prof.role) || null,
+        caregiverLocation: [city, state].filter(Boolean).join(', ') || null,
         // A paid packet keeps the price it was bought at, not today's price.
         priceCents: entitlement ? entitlement.priceChargedCents : priceCents,
         currency: 'usd',
         paid: !!entitlement,
-        paidAt: (_a = entitlement === null || entitlement === void 0 ? void 0 : entitlement.paidAt) !== null && _a !== void 0 ? _a : null,
-        transactionId: (_b = entitlement === null || entitlement === void 0 ? void 0 : entitlement._id) !== null && _b !== void 0 ? _b : null,
+        paidAt: (_c = entitlement === null || entitlement === void 0 ? void 0 : entitlement.paidAt) !== null && _c !== void 0 ? _c : null,
+        transactionId: (_d = entitlement === null || entitlement === void 0 ? void 0 : entitlement._id) !== null && _d !== void 0 ? _d : null,
         stripeConfigured: (0, exports.isStripeConfigured)(),
         testMode: isTestMode(),
     };
