@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.filterVisibleDocuments = exports.isAgencyConfirmed = exports.isSensitiveCredential = void 0;
+exports.withPaywalledUrls = exports.filterVisibleDocuments = exports.isAgencyConfirmed = exports.isSensitiveCredential = void 0;
 const user_model_1 = require("../user/user.model");
 /**
  * SCRUM-99 / SCRUM-100 — credential tier gate.
@@ -72,3 +72,36 @@ const filterVisibleDocuments = (docs, requesterId, caregiverId) => __awaiter(voi
     return docs.filter((doc) => !(0, exports.isSensitiveCredential)(doc.documentType) || confirmed);
 });
 exports.filterVisibleDocuments = filterVisibleDocuments;
+/**
+ * SCRUM-119 — the paywall, applied to the credential-read paths.
+ *
+ * The url IS the file: the CDN links are unsigned and world-readable, so any
+ * response carrying one has already handed over the bytes. getPacketManifest
+ * in download.service.ts withholds exactly this one field until the packet is
+ * paid for ("the agency can see exactly what they are buying, and cannot reach
+ * the bytes until they have") — but /document?userId= and the credential-status
+ * read returned the raw url, so the free "View Credential" button next to the
+ * paid "Download Credential Package" button served the same file.
+ *
+ * Metadata stays free; bytes do not. Owner and admin are unaffected.
+ */
+const withPaywalledUrls = (docs, requesterId, caregiverId) => __awaiter(void 0, void 0, void 0, function* () {
+    if (requesterId && requesterId.toString() === caregiverId.toString()) {
+        return docs;
+    }
+    if (requesterId) {
+        const requester = yield user_model_1.User.findById(requesterId, { role: 1 });
+        if ((requester === null || requester === void 0 ? void 0 : requester.role) === 'admin' || (requester === null || requester === void 0 ? void 0 : requester.role) === 'super_admin') {
+            return docs;
+        }
+        // Required lazily, exactly as requirePacketEntitlement does, to keep the
+        // Stripe SDK out of the cold start of routes that never touch payments.
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { hasEntitlement } = require('../payment/payment.service');
+        if (yield hasEntitlement(requesterId, caregiverId)) {
+            return docs;
+        }
+    }
+    return docs.map((d) => (Object.assign(Object.assign({}, (typeof (d === null || d === void 0 ? void 0 : d.toObject) === 'function' ? d.toObject() : d)), { url: null, locked: true })));
+});
+exports.withPaywalledUrls = withPaywalledUrls;

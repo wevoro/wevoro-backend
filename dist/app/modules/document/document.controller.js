@@ -68,7 +68,13 @@ const reviewDocument = (0, catchAsync_1.default)((req, res) => __awaiter(void 0,
     const { documentId } = req.params;
     const { reviewStatus, credentialIdNumber, credentialIssueDate, credentialExpirationDate, issuingOrganization, rejectionReason, 
     // SCRUM-109
-    rejectionReasonCode, requestReplacement, aiSuggestedReason, adminAgreedWithAi, } = req.body;
+    rejectionReasonCode, requestReplacement, aiSuggestedReason, adminAgreedWithAi, 
+    // SCRUM-109: confirm a credential that has no fixed renewal date. Dropped
+    // here until now, so the service never saw it and the "expiry is required"
+    // guard threw on every never-expiring credential — the checkbox, the model
+    // field and the caregiver-facing "No official expiration date" copy all
+    // existed but were unreachable.
+    hasNoExpiration, } = req.body;
     const result = yield document_service_1.DocumentService.reviewDocument(documentId, {
         reviewStatus,
         credentialIdNumber,
@@ -80,6 +86,7 @@ const reviewDocument = (0, catchAsync_1.default)((req, res) => __awaiter(void 0,
         requestReplacement,
         aiSuggestedReason,
         adminAgreedWithAi,
+        hasNoExpiration,
         reviewedBy: (_a = req.user) === null || _a === void 0 ? void 0 : _a._id,
     });
     (0, sendResponse_1.default)(res, {
@@ -90,8 +97,11 @@ const reviewDocument = (0, catchAsync_1.default)((req, res) => __awaiter(void 0,
     });
 }));
 const getCredentialStatus = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     const { userId } = req.params;
-    const result = yield document_service_1.DocumentService.getCredentialStatus(userId);
+    // SCRUM-99 / SCRUM-119: pass the requester, so this view is gated to the
+    // caller's tier and withholds the file url until the packet is paid for.
+    const result = yield document_service_1.DocumentService.getCredentialStatus(userId, (_a = req.user) === null || _a === void 0 ? void 0 : _a._id);
     (0, sendResponse_1.default)(res, {
         statusCode: http_status_1.default.OK,
         success: true,

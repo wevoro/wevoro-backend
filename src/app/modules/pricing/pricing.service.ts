@@ -70,8 +70,12 @@ export const updatePrice = async (params: {
   if (!Number.isFinite(newPriceCents) || !Number.isInteger(newPriceCents)) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Price must be a whole number of cents');
   }
-  if (newPriceCents < 0) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'Price cannot be negative');
+  // Stripe will not charge less than $0.50, so a $0 price does not make packets
+  // free — it breaks checkout for every agency until someone notices. The usual
+  // source is an empty admin field: Number('') is 0, which slipped past both the
+  // form's "is it a number" guard and the old `< 0` check here.
+  if (newPriceCents < 50) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Price must be at least $0.50');
   }
   // A price above $10,000 is far more likely a decimal-point slip than an
   // intended change, and this field is founder-editable with no second pair of
