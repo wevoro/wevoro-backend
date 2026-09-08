@@ -5,6 +5,7 @@ import ApiError from '../../../errors/ApiError';
 import { PacketTransaction } from '../pricing/pricing.model';
 import { getCurrentPriceCents } from '../pricing/pricing.service';
 import { PersonalInfo } from '../user/personal-info.model';
+import { ProfessionalInfo } from '../user/professional-info.model';
 import { User } from '../user/user.model';
 
 /**
@@ -75,15 +76,27 @@ export const getPacketStatus = async (params: {
   caregiverId: string;
 }) => {
   const { agencyId, caregiverId } = params;
-  const [priceCents, entitlement, caregiverName] = await Promise.all([
+  const [priceCents, entitlement, caregiverName, info, prof] = await Promise.all([
     getCurrentPriceCents(),
     findEntitlement(agencyId, caregiverId),
     displayName(caregiverId),
+    // The payment screen shows the caregiver's photo, role and city so the
+    // agency can see who they are paying for. Sourced here rather than passed
+    // in by each caller, so every surface that opens the gate shows the same
+    // thing instead of a half-filled card.
+    PersonalInfo.findOne({ user: caregiverId }).select('image address'),
+    ProfessionalInfo.findOne({ user: caregiverId }).select('role'),
   ]);
+
+  const city = (info as any)?.address?.city;
+  const state = (info as any)?.address?.state;
 
   return {
     caregiverId,
     caregiverName,
+    caregiverImage: (info as any)?.image || null,
+    caregiverRole: (prof as any)?.role || null,
+    caregiverLocation: [city, state].filter(Boolean).join(', ') || null,
     // A paid packet keeps the price it was bought at, not today's price.
     priceCents: entitlement ? entitlement.priceChargedCents : priceCents,
     currency: 'usd',
