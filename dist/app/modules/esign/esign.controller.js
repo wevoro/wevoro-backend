@@ -139,8 +139,20 @@ exports.signItem = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, voi
  * nothing in the logic needs to change, only how often it is pinged.
  */
 const runReminders = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    // Fail CLOSED. This used to skip the check whenever CRON_SECRET was unset,
+    // which meant one missing env var silently turned a mail-sending scan into a
+    // public endpoint anyone could trigger in a loop. Only local dev may run it
+    // unauthenticated.
     const secret = process.env.CRON_SECRET;
-    if (secret) {
+    if (!secret) {
+        if (process.env.NODE_ENV === 'production') {
+            res
+                .status(503)
+                .json({ success: false, message: 'Cron is not configured' });
+            return;
+        }
+    }
+    else {
         const authHeader = req.headers.authorization || '';
         if (authHeader !== `Bearer ${secret}`) {
             res.status(401).json({ success: false, message: 'Unauthorized' });
