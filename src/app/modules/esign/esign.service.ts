@@ -7,7 +7,11 @@ import { PersonalInfo } from '../user/personal-info.model';
 import { ProfessionalInfo } from '../user/professional-info.model';
 import { Offer } from '../offer/offer.model';
 import { ESIGN_ROLES, EsignRole, SignaturePacket, SigningDocument } from './esign.model';
-import { stampAndStore, buildPackage } from './esign-document.service';
+import {
+  stampAndStore,
+  buildPackage,
+  isDrawnSignature,
+} from './esign-document.service';
 import {
   sendDocumentReplacedEmail,
   sendSignedPackageEmail,
@@ -568,8 +572,14 @@ export const signItem = async (params: {
   // fell back to printing the caregiver's name — producing a document that
   // asserts a signature nobody ever made. The client gates on this too, but the
   // client is not the authority.
+  // Decode the drawing rather than sniffing its prefix. The old check was
+  // startsWith('data:image'), which the literal 10-character string
+  // "data:image" satisfies — the stamper then printed the caregiver's name and
+  // the packet completed, producing precisely the document this guard exists
+  // to prevent. The bogus value also stuck to the packet, so every remaining
+  // item could be signed with an empty body.
   const drawing = signatureImage || packet.signatureImage;
-  if (!drawing || !String(drawing).startsWith('data:image')) {
+  if (!isDrawnSignature(drawing)) {
     throw new ApiError(
       httpStatus.BAD_REQUEST,
       'Draw your signature before signing this document'
