@@ -82,6 +82,11 @@ const updatePrice = (params) => __awaiter(void 0, void 0, void 0, function* () {
     if (newPriceCents > 1000000) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Price looks too high — enter the amount in dollars');
     }
+    // The reason is free text typed by a founder and shown in a table forever.
+    // Capping it here rather than only in the form keeps a very long paste from
+    // becoming a permanent, unreadable row — the history is append-only, so a bad
+    // row cannot be edited out afterwards.
+    const cleanReason = (reason || '').trim().slice(0, 300);
     const config = yield (0, exports.getConfig)();
     const oldPriceCents = (_a = config === null || config === void 0 ? void 0 : config.currentPriceCents) !== null && _a !== void 0 ? _a : null;
     if (oldPriceCents === newPriceCents) {
@@ -98,7 +103,7 @@ const updatePrice = (params) => __awaiter(void 0, void 0, void 0, function* () {
         currency: config.currency || 'usd',
         changedBy,
         changedByName,
-        reason: (reason || '').trim() || undefined,
+        reason: cleanReason || undefined,
     });
     return config;
 });

@@ -80,6 +80,12 @@ export const updatePrice = async (params: {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Price looks too high — enter the amount in dollars');
   }
 
+  // The reason is free text typed by a founder and shown in a table forever.
+  // Capping it here rather than only in the form keeps a very long paste from
+  // becoming a permanent, unreadable row — the history is append-only, so a bad
+  // row cannot be edited out afterwards.
+  const cleanReason = (reason || '').trim().slice(0, 300);
+
   const config = await getConfig();
   const oldPriceCents = config?.currentPriceCents ?? null;
 
@@ -100,7 +106,7 @@ export const updatePrice = async (params: {
     currency: config.currency || 'usd',
     changedBy,
     changedByName,
-    reason: (reason || '').trim() || undefined,
+    reason: cleanReason || undefined,
   });
 
   return config;
