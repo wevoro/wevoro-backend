@@ -21,6 +21,7 @@ const pricing_model_1 = require("../pricing/pricing.model");
 const pricing_service_1 = require("../pricing/pricing.service");
 const personal_info_model_1 = require("../user/personal-info.model");
 const professional_info_model_1 = require("../user/professional-info.model");
+const documents_model_1 = require("../document/documents.model");
 const user_model_1 = require("../user/user.model");
 /**
  * SCRUM-115: Stripe payments for credential packets.
@@ -92,6 +93,14 @@ const getPacketStatus = (params) => __awaiter(void 0, void 0, void 0, function* 
         personal_info_model_1.PersonalInfo.findOne({ user: caregiverId }).select('image address'),
         professional_info_model_1.ProfessionalInfo.findOne({ user: caregiverId }).select('role'),
     ]);
+    // The design shows "{name} · N files" under the packet line, so the agency
+    // knows how much they are getting before paying. Counted here rather than
+    // left to the manifest call, because the gate can be opened without the
+    // documents modal ever being loaded.
+    const fileCount = yield documents_model_1.Documents.countDocuments({
+        user: caregiverId,
+        url: { $exists: true, $nin: [null, ''] },
+    });
     const city = (_a = info === null || info === void 0 ? void 0 : info.address) === null || _a === void 0 ? void 0 : _a.city;
     const state = (_b = info === null || info === void 0 ? void 0 : info.address) === null || _b === void 0 ? void 0 : _b.state;
     return {
@@ -100,6 +109,7 @@ const getPacketStatus = (params) => __awaiter(void 0, void 0, void 0, function* 
         caregiverImage: (info === null || info === void 0 ? void 0 : info.image) || null,
         caregiverRole: (prof === null || prof === void 0 ? void 0 : prof.role) || null,
         caregiverLocation: [city, state].filter(Boolean).join(', ') || null,
+        fileCount,
         // A paid packet keeps the price it was bought at, not today's price.
         priceCents: entitlement ? entitlement.priceChargedCents : priceCents,
         currency: 'usd',

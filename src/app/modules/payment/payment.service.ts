@@ -6,6 +6,7 @@ import { PacketTransaction } from '../pricing/pricing.model';
 import { getCurrentPriceCents } from '../pricing/pricing.service';
 import { PersonalInfo } from '../user/personal-info.model';
 import { ProfessionalInfo } from '../user/professional-info.model';
+import { Documents } from '../document/documents.model';
 import { User } from '../user/user.model';
 
 /**
@@ -88,6 +89,15 @@ export const getPacketStatus = async (params: {
     ProfessionalInfo.findOne({ user: caregiverId }).select('role'),
   ]);
 
+  // The design shows "{name} · N files" under the packet line, so the agency
+  // knows how much they are getting before paying. Counted here rather than
+  // left to the manifest call, because the gate can be opened without the
+  // documents modal ever being loaded.
+  const fileCount = await Documents.countDocuments({
+    user: caregiverId,
+    url: { $exists: true, $nin: [null, ''] },
+  });
+
   const city = (info as any)?.address?.city;
   const state = (info as any)?.address?.state;
 
@@ -97,6 +107,7 @@ export const getPacketStatus = async (params: {
     caregiverImage: (info as any)?.image || null,
     caregiverRole: (prof as any)?.role || null,
     caregiverLocation: [city, state].filter(Boolean).join(', ') || null,
+    fileCount,
     // A paid packet keeps the price it was bought at, not today's price.
     priceCents: entitlement ? entitlement.priceChargedCents : priceCents,
     currency: 'usd',
