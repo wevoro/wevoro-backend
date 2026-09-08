@@ -62,6 +62,25 @@ export interface SignStampInput {
  * Stamp one document and return the signed bytes plus the hash of the original,
  * so the certificate can prove which version was signed.
  */
+/**
+ * A drawing only counts if pdf-lib can actually burn it onto the page.
+ * `startsWith('data:image')` is not that test — the literal 10-character
+ * string "data:image" passes it, and the stamper then printed the signer's
+ * name instead, producing exactly the document the signature check exists to
+ * prevent: one that asserts a signature nobody ever made.
+ */
+export const isDrawnSignature = (value?: string | null): boolean => {
+  const m = /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(
+    String(value || '')
+  );
+  if (!m) return false;
+  const bytes = Buffer.from(m[1], 'base64');
+  return (
+    bytes.length > 8 &&
+    bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))
+  );
+};
+
 export const buildSignedPdf = async (
   input: SignStampInput
 ): Promise<{ bytes: Buffer; sourceHash: string }> => {
@@ -94,9 +113,9 @@ export const buildSignedPdf = async (
   last.drawText('Signed by', { x: boxX + 12, y: boxY + boxH - 16, size: 7, font: helv, color: MUTED });
 
   let drewSignature = false;
-  if (input.signatureImage?.startsWith('data:image')) {
+  if (isDrawnSignature(input.signatureImage)) {
     try {
-      const b64 = input.signatureImage.split(',')[1] || '';
+      const b64 = (input.signatureImage as string).split(',')[1] || '';
       const png = await pdf.embedPng(Buffer.from(b64, 'base64'));
       const maxW = boxW - 24;
       const maxH = 34;
@@ -109,14 +128,16 @@ export const buildSignedPdf = async (
       });
       drewSignature = true;
     } catch {
-      // A malformed drawing must not stop the document being produced.
+      // Swallowed deliberately — the throw below is the single place that
+      // decides what an unembeddable drawing means.
     }
   }
   if (!drewSignature) {
-    // No drawing on file: fall back to the name so the block is never blank.
-    last.drawText(input.signerName, {
-      x: boxX + 12, y: boxY + 44, size: 12, font: helvBold, color: GREEN,
-    });
+    // Refuse rather than print the name. Falling back to typed text produced a
+    // legal-looking document with no signature on it, and signItem then marked
+    // the item signed. A caller that genuinely has no drawing is rejected
+    // earlier, so reaching here means the drawing was unusable.
+    throw new Error('The signature could not be embedded into the document');
   }
 
   last.drawText(`${input.signerName}  ·  WeVoro`, {

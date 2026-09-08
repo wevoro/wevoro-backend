@@ -510,8 +510,14 @@ const signItem = (params) => __awaiter(void 0, void 0, void 0, function* () {
     // fell back to printing the caregiver's name — producing a document that
     // asserts a signature nobody ever made. The client gates on this too, but the
     // client is not the authority.
+    // Decode the drawing rather than sniffing its prefix. The old check was
+    // startsWith('data:image'), which the literal 10-character string
+    // "data:image" satisfies — the stamper then printed the caregiver's name and
+    // the packet completed, producing precisely the document this guard exists
+    // to prevent. The bogus value also stuck to the packet, so every remaining
+    // item could be signed with an empty body.
     const drawing = signatureImage || packet.signatureImage;
-    if (!drawing || !String(drawing).startsWith('data:image')) {
+    if (!(0, esign_document_service_1.isDrawnSignature)(drawing)) {
         throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'Draw your signature before signing this document');
     }
     // The drawing is captured once and reused for the rest of the packet.
