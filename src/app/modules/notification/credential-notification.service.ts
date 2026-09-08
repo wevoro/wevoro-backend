@@ -22,12 +22,35 @@ import {
  * already exists before firing.
  */
 
+/** "1 day", not "1 days". */
+const dayCount = (n: number): string => `${n} ${n === 1 ? 'day' : 'days'}`;
+
 const CREDENTIAL_LABELS: Record<string, string> = {
-  certifications: 'CNA Certification',
   driver_license: "Driver's License",
   auto_insurance: 'Auto Insurance',
   cpr_test: 'CPR Test',
   tb_tests: 'TB Test',
+};
+
+/**
+ * The certification label depends on the caregiver's track: a PCA holds a PCA
+ * certificate, not a CNA one. This was a fixed 'CNA Certification', so every
+ * PCA was emailed about a credential they do not hold — and told to renew it.
+ * Derived at send time exactly as the profile view derives it (documents
+ * carry no role of their own).
+ */
+const roleCache = new Map<string, 'CNA' | 'PCA'>();
+const certificationLabel = async (caregiverId: string): Promise<string> => {
+  let role = roleCache.get(caregiverId);
+  if (!role) {
+    const { ProfessionalInfo } = await import('../user/professional-info.model');
+    const prof: any = await ProfessionalInfo.findOne({ user: caregiverId })
+      .select('role')
+      .lean();
+    role = prof?.role === 'PCA' ? 'PCA' : 'CNA';
+    roleCache.set(caregiverId, role);
+  }
+  return `${role} Certification`;
 };
 
 /**
@@ -141,15 +164,18 @@ export const evaluateCredentialExpirations = async (): Promise<void> => {
       const expirationDate = new Date(doc.credentialExpirationDate);
       const diffMs = expirationDate.getTime() - now.getTime();
       const daysUntilExpiration = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-      const credentialName = CREDENTIAL_LABELS[doc.documentType] || doc.title || 'Credential';
       const caregiverId = doc.user.toString();
+      const credentialName =
+        doc.documentType === 'certifications'
+          ? await certificationLabel(caregiverId)
+          : CREDENTIAL_LABELS[doc.documentType] || doc.title || 'Credential';
       const docId = doc._id.toString();
 
       // Yellow band entry: 60 days (caregiver only)
       if (daysUntilExpiration <= 60 && daysUntilExpiration > 30) {
         await fireNotification({
           userId: caregiverId,
-          message: `Your <strong>${credentialName}</strong> expires in ${daysUntilExpiration} days. Plan ahead to renew before it enters urgent status.`,
+          message: `Your <strong>${credentialName}</strong> expires in ${dayCount(daysUntilExpiration)}. Plan ahead to renew before it enters urgent status.`,
           type: 'credential_yellow',
           credentialDocumentId: docId,
           credentialName,
@@ -165,7 +191,7 @@ export const evaluateCredentialExpirations = async (): Promise<void> => {
       if (daysUntilExpiration <= 30 && daysUntilExpiration > 0) {
         await fireNotification({
           userId: caregiverId,
-          message: `Your <strong>${credentialName}</strong> expires in ${daysUntilExpiration} days. Please renew now to keep your profile active.`,
+          message: `Your <strong>${credentialName}</strong> expires in ${dayCount(daysUntilExpiration)}. Please renew now to keep your profile active.`,
           type: 'credential_red',
           credentialDocumentId: docId,
           credentialName,
@@ -182,7 +208,7 @@ export const evaluateCredentialExpirations = async (): Promise<void> => {
         for (const agencyId of engagedAgencies) {
           await fireNotification({
             userId: agencyId,
-            message: `<strong>${caregiverName}</strong>'s <strong>${credentialName}</strong> expires in ${daysUntilExpiration} days. You may want to confirm renewal plans before assigning further shifts.`,
+            message: `<strong>${caregiverName}</strong>'s <strong>${credentialName}</strong> expires in ${dayCount(daysUntilExpiration)}. You may want to confirm renewal plans before assigning further shifts.`,
             type: 'credential_red',
             credentialDocumentId: docId,
             credentialName,

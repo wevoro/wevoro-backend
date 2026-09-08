@@ -65,6 +65,9 @@ const credentialLink = (): string => `${appUrl()}/pro/profile#credentials`;
 
 const SANS = 'Arial,Helvetica,sans-serif';
 
+/** "1 day", not "1 days". */
+const dayCount = (n: number): string => `${n} ${n === 1 ? 'day' : 'days'}`;
+
 interface Spec {
   subject: (credential: string) => string;
   eyebrow: string;
@@ -89,7 +92,7 @@ const SPECS: Record<CredentialEmailKind, Spec> = {
     intro: () =>
       'keeping your credentials current keeps you eligible for offers on WeVoro. One of your credentials will expire in 60 days &mdash; you can upload an updated document now so there&rsquo;s no gap in your eligibility. No action is required today.',
     rowLabel: 'EXPIRES',
-    rowValue: ({ expiresOn, days }) => `${expiresOn} &middot; ${days} days from today`,
+    rowValue: ({ expiresOn, days }) => `${expiresOn} &middot; ${dayCount(days)} from today`,
     cta: 'View credential',
     note: 'This is an automated alert from WeVoro. No action is needed if you have already uploaded an updated document.',
   },
@@ -102,7 +105,7 @@ const SPECS: Record<CredentialEmailKind, Spec> = {
     intro: () =>
       'one of your credentials will expire in 30 days. To stay eligible for offers, please upload an updated document before it expires &mdash; credentials that lapse will pause your eligibility until a valid document is on file.',
     rowLabel: 'EXPIRES',
-    rowValue: ({ expiresOn, days }) => `${expiresOn} &middot; ${days} days from today`,
+    rowValue: ({ expiresOn, days }) => `${expiresOn} &middot; ${dayCount(days)} from today`,
     cta: 'Upload updated document',
     note: 'This is an automated alert from WeVoro. Disregard if you have already uploaded an updated document.',
   },

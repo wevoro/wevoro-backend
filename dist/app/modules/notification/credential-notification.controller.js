@@ -27,8 +27,20 @@ const credential_notification_service_1 = require("./credential-notification.ser
  * is unset (e.g. local dev), the check is skipped.
  */
 const runExpirationCheck = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    // Fail CLOSED. This used to skip the check whenever CRON_SECRET was unset,
+    // which meant one missing env var silently turned a mail-sending scan into a
+    // public endpoint anyone could trigger in a loop. Only local dev may run it
+    // unauthenticated.
     const secret = process.env.CRON_SECRET;
-    if (secret) {
+    if (!secret) {
+        if (process.env.NODE_ENV === 'production') {
+            res
+                .status(503)
+                .json({ success: false, message: 'Cron is not configured' });
+            return;
+        }
+    }
+    else {
         const auth = req.headers.authorization || '';
         if (auth !== `Bearer ${secret}`) {
             res.status(401).json({ success: false, message: 'Unauthorized' });
