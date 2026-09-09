@@ -22,6 +22,12 @@ export const getLibrary = catchAsync(async (req: Request, res: Response) => {
   sendResponse(res, { statusCode: httpStatus.OK, success: true, data: result });
 });
 
+/** Admin oversight: what one agency uploaded, and what came back signed. */
+export const adminAgencyOverview = catchAsync(async (req: Request, res: Response) => {
+  const result = await EsignService.getAgencyOverview(req.params.agencyId);
+  sendResponse(res, { statusCode: httpStatus.OK, success: true, data: result });
+});
+
 /** SCRUM-117: multi-file upload into one role group. */
 export const addDocuments = catchAsync(async (req: Request, res: Response) => {
   const files = ((req.files as Express.Multer.File[]) || []) as any[];

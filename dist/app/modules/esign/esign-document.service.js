@@ -77,8 +77,13 @@ const buildSignedPdf = (input) => __awaiter(void 0, void 0, void 0, function* ()
     const pages = pdf.getPages();
     const last = pages[pages.length - 1];
     const { width } = last.getSize();
-    const boxW = 260;
-    const boxH = 92;
+    // The block was 260x92 with only 34pt of height for the drawing itself, which
+    // squeezed a real signature down to a few millimetres and clipped tall ones —
+    // raised in review as a legal/acceptance risk on a document an auditor reads.
+    // It is now roomy enough for a full-size signature, and every metadata line
+    // sits on its own row instead of sharing one.
+    const boxW = 300;
+    const boxH = 140;
     const boxX = 56;
     const boxY = 48;
     last.drawRectangle({
@@ -96,13 +101,18 @@ const buildSignedPdf = (input) => __awaiter(void 0, void 0, void 0, function* ()
             const b64 = input.signatureImage.split(',')[1] || '';
             const png = yield pdf.embedPng(Buffer.from(b64, 'base64'));
             const maxW = boxW - 24;
-            const maxH = 34;
+            const maxH = 62;
             const scale = Math.min(maxW / png.width, maxH / png.height, 1);
+            const drawnW = png.width * scale;
+            const drawnH = png.height * scale;
+            // Sit the drawing on the baseline of its band and centre it in the leftover
+            // width, so a short signature does not float and a wide one still starts
+            // level with the labels beneath it.
             last.drawImage(png, {
-                x: boxX + 12,
-                y: boxY + 34,
-                width: png.width * scale,
-                height: png.height * scale,
+                x: boxX + 12 + Math.max(0, (maxW - drawnW) / 2),
+                y: boxY + 46,
+                width: drawnW,
+                height: drawnH,
             });
             drewSignature = true;
         }
@@ -119,13 +129,16 @@ const buildSignedPdf = (input) => __awaiter(void 0, void 0, void 0, function* ()
         throw new Error('The signature could not be embedded into the document');
     }
     last.drawText(`${input.signerName}  ·  WeVoro`, {
-        x: boxX + 12, y: boxY + 22, size: 8, font: helvBold, color: GREEN,
+        x: boxX + 12, y: boxY + 32, size: 8, font: helvBold, color: GREEN,
     });
     last.drawText(input.signedAt.toISOString().replace('T', ' ').slice(0, 19) + ' UTC', {
-        x: boxX + 12, y: boxY + 12, size: 6.5, font: helv, color: MUTED,
+        x: boxX + 12, y: boxY + 21, size: 6.5, font: helv, color: MUTED,
     });
+    // Its own line now. Sharing a row with the timestamp meant a long id ran into
+    // the edge of the block, and agencies need this readable — they quote it in
+    // their state audit records.
     last.drawText(`Signature ID ${input.stampId}`, {
-        x: boxX + 130, y: boxY + 12, size: 6.5, font: helv, color: MUTED,
+        x: boxX + 12, y: boxY + 10, size: 6.5, font: helv, color: MUTED,
     });
     // --- certificate of completion ---
     const cert = pdf.addPage([width, 792]);

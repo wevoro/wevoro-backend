@@ -33,6 +33,13 @@ router.patch(
   EsignController.restoreDocument
 );
 
+// --- admin oversight of an agency's signing activity (read-only) ---
+router.get(
+  '/admin/agency/:agencyId',
+  auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
+  EsignController.adminAgencyOverview
+);
+
 // --- SCRUM-118: caregiver signing flow ---
 router.get('/my-packets', auth(ENUM_USER_ROLE.PRO), EsignController.myPackets);
 router.get('/offer/:offerId', auth(ENUM_USER_ROLE.PRO), EsignController.offerContext);

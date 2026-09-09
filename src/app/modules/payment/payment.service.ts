@@ -33,6 +33,14 @@ const stripeClient = (): Stripe | null => {
 };
 
 /**
+ * Where Stripe sends the agency back after checkout. Deliberately NOT
+ * config.frontend_url — that value is a leftover pointing at a different
+ * product. Same APP_PUBLIC_URL the credential emails use.
+ */
+const appUrl = (): string =>
+  (process.env.APP_PUBLIC_URL || 'https://wevoro.com').replace(/\/+$/, '');
+
+/**
  * True when a real Stripe charge can be made. When false the module either
  * refuses (production) or simulates (QA with PAYMENTS_TEST_MODE=true).
  */
@@ -227,43 +235,71 @@ export const createCheckout = async (params: {
     );
   }
 
-  // Reuse the existing intent when it is still usable, so a retry after a
-  // decline does not create a second charge object.
-  let intent: Stripe.PaymentIntent | null = null;
-  if (transaction.stripePaymentIntentId) {
+  // Reuse an open session so a retry does not stack checkout pages, and so
+  // returning to the gate lands the agency back on the page they left.
+  let session: Stripe.Checkout.Session | null = null;
+  if (transaction.stripeCheckoutSessionId) {
     try {
-      const existing = await stripe.paymentIntents.retrieve(
-        transaction.stripePaymentIntentId
+      const existing = await stripe.checkout.sessions.retrieve(
+        transaction.stripeCheckoutSessionId
       );
-      if (['requires_payment_method', 'requires_confirmation', 'requires_action'].includes(existing.status)) {
-        intent = existing;
-      }
+      if (existing.status === 'open' && existing.url) session = existing;
     } catch {
-      // Intent vanished or belongs to another key — fall through and make one.
+      // Session vanished or belongs to another key — fall through and make one.
     }
   }
 
-  if (!intent) {
-    intent = await stripe.paymentIntents.create(
+  if (!session) {
+    const caregiverName = await displayName(caregiverId);
+    const returnTo = `${appUrl()}/partner/pros/${caregiverId}`;
+    session = await stripe.checkout.sessions.create(
       {
-        amount: transaction.priceChargedCents,
-        currency: transaction.currency || 'usd',
-        automatic_payment_methods: { enabled: true },
+        mode: 'payment',
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: transaction.currency || 'usd',
+              unit_amount: transaction.priceChargedCents,
+              product_data: {
+                name: `${caregiverName} — credential packet`,
+                description:
+                  'One-time purchase. Includes e-signature tracking and free re-downloads.',
+              },
+            },
+          },
+        ],
+        // Both carry the id: the session for checkout.session.completed, the
+        // intent for the payment_intent.* events, so whichever arrives first
+        // can settle the transaction.
         metadata: {
           transactionId: String(transaction._id),
           agencyId: String(agencyId),
           caregiverId: String(caregiverId),
           product: 'credential_packet',
         },
+        payment_intent_data: {
+          metadata: {
+            transactionId: String(transaction._id),
+            agencyId: String(agencyId),
+            caregiverId: String(caregiverId),
+            product: 'credential_packet',
+          },
+        },
+        success_url: `${returnTo}?payment=success&tx=${transaction._id}`,
+        cancel_url: `${returnTo}?payment=cancelled&tx=${transaction._id}`,
       },
-      // Stripe-side idempotency: the same transaction never yields two charges
-      // even if this endpoint is called twice concurrently. The price is part
-      // of the key because Stripe rejects a reused key whose parameters have
-      // changed — after a re-price above, the same transaction legitimately
-      // needs a second intent for the new amount.
-      { idempotencyKey: `packet_${transaction._id}_${transaction.priceChargedCents}` }
+      // Stripe-side idempotency: the same transaction never yields two checkout
+      // sessions even if this endpoint is called twice concurrently. The price
+      // is part of the key because Stripe rejects a reused key whose parameters
+      // have changed — after a re-price above, the same transaction legitimately
+      // needs a second session for the new amount.
+      { idempotencyKey: `packet_cs_${transaction._id}_${transaction.priceChargedCents}` }
     );
-    transaction.stripePaymentIntentId = intent.id;
+    transaction.stripeCheckoutSessionId = session.id;
+    if (typeof session.payment_intent === 'string') {
+      transaction.stripePaymentIntentId = session.payment_intent;
+    }
     await transaction.save();
   }
 
@@ -272,8 +308,9 @@ export const createCheckout = async (params: {
     transactionId: String(transaction._id),
     priceCents: transaction.priceChargedCents,
     currency: transaction.currency,
-    clientSecret: intent.client_secret,
-    publishableKey: config.stripe.publishable_key,
+    // The agency is sent to Stripe's own page rather than typing a card into a
+    // modal on our site.
+    checkoutUrl: session.url,
     testMode: false,
   };
 };
@@ -351,18 +388,70 @@ export const handleWebhook = async (rawBody: Buffer, signature: string) => {
     throw new ApiError(httpStatus.BAD_REQUEST, `Webhook signature failed: ${err.message}`);
   }
 
-  const intent = event.data.object as Stripe.PaymentIntent;
-  const transactionId = intent?.metadata?.transactionId;
+  // Both shapes carry our transactionId in metadata, and both are handled:
+  // the hosted checkout page settles via checkout.session.*, while the
+  // payment_intent.* events still arrive and are the fallback if a session
+  // event is missed. markPaid/markFailed dedupe on event id, so a transaction
+  // covered by both is only ever settled once.
+  const object = event.data.object as any;
+  const transactionId = object?.metadata?.transactionId;
 
   if (transactionId) {
-    if (event.type === 'payment_intent.succeeded') {
-      await markPaid({ transactionId, eventId: event.id, paymentIntentId: intent.id });
-    } else if (event.type === 'payment_intent.payment_failed') {
-      await markFailed({
-        transactionId,
-        eventId: event.id,
-        message: intent.last_payment_error?.message || 'Card declined',
-      });
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const s = object as Stripe.Checkout.Session;
+        // A completed session is not automatically a paid one — an async method
+        // can still be processing. Only 'paid' releases the packet.
+        if (s.payment_status === 'paid') {
+          await markPaid({
+            transactionId,
+            eventId: event.id,
+            paymentIntentId:
+              typeof s.payment_intent === 'string' ? s.payment_intent : undefined,
+          });
+        }
+        break;
+      }
+      case 'checkout.session.async_payment_succeeded': {
+        const s = object as Stripe.Checkout.Session;
+        await markPaid({
+          transactionId,
+          eventId: event.id,
+          paymentIntentId:
+            typeof s.payment_intent === 'string' ? s.payment_intent : undefined,
+        });
+        break;
+      }
+      case 'checkout.session.async_payment_failed':
+        await markFailed({
+          transactionId,
+          eventId: event.id,
+          message: 'The payment did not go through',
+        });
+        break;
+      // The agency closed or abandoned the Stripe page. Not a failure — the
+      // transaction simply stays incomplete, which is exactly what the ledger
+      // should record.
+      case 'checkout.session.expired':
+        break;
+      case 'payment_intent.succeeded':
+        await markPaid({
+          transactionId,
+          eventId: event.id,
+          paymentIntentId: (object as Stripe.PaymentIntent).id,
+        });
+        break;
+      case 'payment_intent.payment_failed':
+        await markFailed({
+          transactionId,
+          eventId: event.id,
+          message:
+            (object as Stripe.PaymentIntent).last_payment_error?.message ||
+            'Card declined',
+        });
+        break;
+      default:
+        break;
     }
   }
 
@@ -392,7 +481,38 @@ export const confirmFromStripe = async (params: {
   if (transaction.status === 'paid') return transaction;
 
   const stripe = stripeClient();
-  if (!stripe || !transaction.stripePaymentIntentId) return transaction;
+  if (!stripe) return transaction;
+
+  // With the hosted checkout page the session is created first and the intent
+  // only attaches once the agency starts paying, so the intent id may not be on
+  // the transaction yet. Ask the session for it before giving up — otherwise an
+  // agency who paid on Stripe's page but whose webhook was delayed would sit on
+  // the processing screen with nothing able to move them off it.
+  if (!transaction.stripePaymentIntentId && transaction.stripeCheckoutSessionId) {
+    try {
+      const session = await stripe.checkout.sessions.retrieve(
+        transaction.stripeCheckoutSessionId
+      );
+      if (session.payment_status === 'paid') {
+        return markPaid({
+          transactionId: String(transaction._id),
+          eventId: `confirm_cs_${session.id}`,
+          paymentIntentId:
+            typeof session.payment_intent === 'string'
+              ? session.payment_intent
+              : undefined,
+        });
+      }
+      if (typeof session.payment_intent === 'string') {
+        transaction.stripePaymentIntentId = session.payment_intent;
+        await transaction.save();
+      }
+    } catch {
+      // Session gone — fall through to the intent path below.
+    }
+  }
+
+  if (!transaction.stripePaymentIntentId) return transaction;
 
   const intent = await stripe.paymentIntents.retrieve(transaction.stripePaymentIntentId);
 

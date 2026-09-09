@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.runSigningReminders = exports.signItem = exports.getMyPackets = exports.startPacket = exports.getOfferContext = exports.ensureOfferOnConnection = exports.restoreDocument = exports.removeDocument = exports.pendingCopiesCount = exports.replaceDocument = exports.addDocuments = exports.getLibrary = exports.signatureName = exports.reminderTiersHours = void 0;
+exports.runSigningReminders = exports.signItem = exports.getMyPackets = exports.startPacket = exports.getOfferContext = exports.ensureOfferOnConnection = exports.restoreDocument = exports.removeDocument = exports.pendingCopiesCount = exports.replaceDocument = exports.addDocuments = exports.getAgencyOverview = exports.getLibrary = exports.signatureName = exports.reminderTiersHours = void 0;
 const fs_1 = __importDefault(require("fs"));
 const http_status_1 = __importDefault(require("http-status"));
 const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
@@ -144,6 +144,73 @@ const getLibrary = (agencyId) => __awaiter(void 0, void 0, void 0, function* () 
     return groups;
 });
 exports.getLibrary = getLibrary;
+/**
+ * Admin oversight of one agency's e-signature activity.
+ *
+ * Admins could already open any caregiver's uploaded credentials but had no way
+ * to see what an agency had asked those caregivers to sign, or to read back a
+ * signed copy — which left the signed artefact, the thing an auditor actually
+ * wants, visible to nobody but the two parties.
+ *
+ * This is deliberately read-only and reporting-shaped. Admin oversees the
+ * record; it does not step into the agency/caregiver relationship.
+ */
+const getAgencyOverview = (agencyId) => __awaiter(void 0, void 0, void 0, function* () {
+    const [docs, packets] = yield Promise.all([
+        esign_model_1.SigningDocument.find({ agency: agencyId }).sort({ role: 1, createdAt: 1 }).lean(),
+        esign_model_1.SignaturePacket.find({ agency: agencyId }).sort({ createdAt: -1 }).lean(),
+    ]);
+    const names = new Map();
+    yield Promise.all([...new Set(packets.map((p) => String(p.caregiver)))].map((id) => __awaiter(void 0, void 0, void 0, function* () {
+        const info = yield personal_info_model_1.PersonalInfo.findOne({ user: id }).select('firstName lastName');
+        names.set(id, `${(info === null || info === void 0 ? void 0 : info.firstName) || ''} ${(info === null || info === void 0 ? void 0 : info.lastName) || ''}`.trim() || 'Caregiver');
+    })));
+    const library = esign_model_1.ESIGN_ROLES.map((role) => ({
+        role,
+        // Removed documents are kept and marked, not hidden: an agency that pulls a
+        // document after caregivers signed it must not be able to erase that from
+        // the oversight view.
+        documents: docs
+            .filter((d) => d.role === role)
+            .map((d) => ({
+            _id: d._id,
+            title: d.title,
+            fileName: d.fileName,
+            fileUrl: d.fileUrl,
+            fileSize: d.fileSize,
+            version: d.version,
+            status: d.status,
+            uploadedAt: d.createdAt,
+        })),
+    }));
+    return {
+        library,
+        packets: packets.map((p) => ({
+            _id: p._id,
+            caregiverName: names.get(String(p.caregiver)) || 'Caregiver',
+            role: p.role,
+            status: p.status,
+            startedAt: p.step1CompletedAt || p.createdAt,
+            completedAt: p.completedAt || null,
+            items: (p.items || []).map((it) => ({
+                title: it.title,
+                fileName: it.fileName,
+                status: it.status,
+                version: it.version,
+                signedAt: it.signedAt || null,
+                // The signed artefact itself — the original plus the stamp and the
+                // certificate page. This is the file an audit asks for.
+                signedFileUrl: it.signedFileUrl || null,
+            })),
+        })),
+        totals: {
+            documents: docs.filter((d) => d.status === 'active').length,
+            caregivers: packets.length,
+            fullySigned: packets.filter((p) => p.status === 'completed').length,
+        },
+    };
+});
+exports.getAgencyOverview = getAgencyOverview;
 /**
  * A packet is a snapshot of the library taken when the caregiver connected, so
  * a document uploaded afterwards would never reach anyone already onboarding —
