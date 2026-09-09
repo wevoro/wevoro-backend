@@ -18,6 +18,7 @@ export const getOverview = catchAsync(async (req: Request, res: Response) => {
   const result = await PricingService.getOverview({
     search: req.query.search as string,
     status: req.query.status as string,
+    sort: req.query.sort as string,
     page: Number(req.query.page) || 1,
     limit: Number(req.query.limit) || 10,
   });

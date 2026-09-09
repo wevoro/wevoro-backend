@@ -441,7 +441,19 @@ const requestLoginCode = async (payload: {
 
   let isNewUser = false;
   if (!user) {
-    const role = payload.role || ENUM_USER_ROLE.PARTNER;
+    // This route is public and unauthenticated, so the role can never be taken
+    // from the request as given: posting {email, role:'super_admin'} used to
+    // mint a passwordless super admin for any address the caller controls.
+    // Only the two self-serve roles may be created here; anything else — an
+    // admin role, a typo, a missing value — becomes a partner.
+    const SELF_SERVE_ROLES: string[] = [
+      ENUM_USER_ROLE.PARTNER,
+      ENUM_USER_ROLE.PRO,
+    ];
+    const requested = String(payload.role || '').toLowerCase().trim();
+    const role = SELF_SERVE_ROLES.includes(requested)
+      ? requested
+      : ENUM_USER_ROLE.PARTNER;
     // Resolve caregiver share-link attribution (mirrors createUser).
     let sourceCaregiverId: any = undefined;
     if (payload.sourceShareId) {

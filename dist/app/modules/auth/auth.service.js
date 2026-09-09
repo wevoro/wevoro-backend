@@ -274,7 +274,19 @@ const requestLoginCode = (payload) => __awaiter(void 0, void 0, void 0, function
     }
     let isNewUser = false;
     if (!user) {
-        const role = payload.role || user_1.ENUM_USER_ROLE.PARTNER;
+        // This route is public and unauthenticated, so the role can never be taken
+        // from the request as given: posting {email, role:'super_admin'} used to
+        // mint a passwordless super admin for any address the caller controls.
+        // Only the two self-serve roles may be created here; anything else — an
+        // admin role, a typo, a missing value — becomes a partner.
+        const SELF_SERVE_ROLES = [
+            user_1.ENUM_USER_ROLE.PARTNER,
+            user_1.ENUM_USER_ROLE.PRO,
+        ];
+        const requested = String(payload.role || '').toLowerCase().trim();
+        const role = SELF_SERVE_ROLES.includes(requested)
+            ? requested
+            : user_1.ENUM_USER_ROLE.PARTNER;
         // Resolve caregiver share-link attribution (mirrors createUser).
         let sourceCaregiverId = undefined;
         if (payload.sourceShareId) {
