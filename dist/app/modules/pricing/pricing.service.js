@@ -148,10 +148,23 @@ const getTransactions = (params) => __awaiter(void 0, void 0, void 0, function* 
         ? withNames.filter((t) => t.agencyName.toLowerCase().includes(term) ||
             t.caregiverName.toLowerCase().includes(term))
         : withNames;
-    const total = filtered.length;
+    // Sorting has to happen here, over the whole filtered set, before the page is
+    // sliced off. The admin table used to sort the ten rows it already had, so
+    // "Oldest first" reordered one page instead of the ledger and the genuinely
+    // oldest transaction never appeared unless you were already on the last page.
+    const sorted = [...filtered];
+    if (params.sort === 'oldest') {
+        sorted.sort((a, b) => +new Date(a.transactionDate) - +new Date(b.transactionDate));
+    }
+    else if (params.sort === 'amount') {
+        sorted.sort((a, b) => b.priceChargedCents - a.priceChargedCents);
+    }
+    // default 'newest' is already applied by the .sort({ transactionDate: -1 })
+    // on the query above.
+    const total = sorted.length;
     const start = (page - 1) * limit;
     return {
-        transactions: filtered.slice(start, start + limit),
+        transactions: sorted.slice(start, start + limit),
         total,
         page,
         limit,

@@ -52,6 +52,7 @@ exports.getOverview = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, 
     const result = yield PricingService.getOverview({
         search: req.query.search,
         status: req.query.status,
+        sort: req.query.sort,
         page: Number(req.query.page) || 1,
         limit: Number(req.query.limit) || 10,
     });
