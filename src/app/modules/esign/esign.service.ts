@@ -152,6 +152,81 @@ export const getLibrary = async (agencyId: string) => {
 };
 
 /**
+ * Admin oversight of one agency's e-signature activity.
+ *
+ * Admins could already open any caregiver's uploaded credentials but had no way
+ * to see what an agency had asked those caregivers to sign, or to read back a
+ * signed copy — which left the signed artefact, the thing an auditor actually
+ * wants, visible to nobody but the two parties.
+ *
+ * This is deliberately read-only and reporting-shaped. Admin oversees the
+ * record; it does not step into the agency/caregiver relationship.
+ */
+export const getAgencyOverview = async (agencyId: string) => {
+  const [docs, packets] = await Promise.all([
+    SigningDocument.find({ agency: agencyId }).sort({ role: 1, createdAt: 1 }).lean(),
+    SignaturePacket.find({ agency: agencyId }).sort({ createdAt: -1 }).lean(),
+  ]);
+
+  const names = new Map<string, string>();
+  await Promise.all(
+    [...new Set(packets.map((p: any) => String(p.caregiver)))].map(async (id) => {
+      const info = await PersonalInfo.findOne({ user: id }).select('firstName lastName');
+      names.set(
+        id,
+        `${info?.firstName || ''} ${info?.lastName || ''}`.trim() || 'Caregiver'
+      );
+    })
+  );
+
+  const library = ESIGN_ROLES.map((role) => ({
+    role,
+    // Removed documents are kept and marked, not hidden: an agency that pulls a
+    // document after caregivers signed it must not be able to erase that from
+    // the oversight view.
+    documents: docs
+      .filter((d: any) => d.role === role)
+      .map((d: any) => ({
+        _id: d._id,
+        title: d.title,
+        fileName: d.fileName,
+        fileUrl: d.fileUrl,
+        fileSize: d.fileSize,
+        version: d.version,
+        status: d.status,
+        uploadedAt: d.createdAt,
+      })),
+  }));
+
+  return {
+    library,
+    packets: packets.map((p: any) => ({
+      _id: p._id,
+      caregiverName: names.get(String(p.caregiver)) || 'Caregiver',
+      role: p.role,
+      status: p.status,
+      startedAt: p.step1CompletedAt || p.createdAt,
+      completedAt: p.completedAt || null,
+      items: (p.items || []).map((it: any) => ({
+        title: it.title,
+        fileName: it.fileName,
+        status: it.status,
+        version: it.version,
+        signedAt: it.signedAt || null,
+        // The signed artefact itself — the original plus the stamp and the
+        // certificate page. This is the file an audit asks for.
+        signedFileUrl: it.signedFileUrl || null,
+      })),
+    })),
+    totals: {
+      documents: docs.filter((d: any) => d.status === 'active').length,
+      caregivers: packets.length,
+      fullySigned: packets.filter((p: any) => p.status === 'completed').length,
+    },
+  };
+};
+
+/**
  * A packet is a snapshot of the library taken when the caregiver connected, so
  * a document uploaded afterwards would never reach anyone already onboarding —
  * the agency saw two documents in the group while the caregiver was still only

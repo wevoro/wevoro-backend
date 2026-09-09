@@ -35,7 +35,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.runReminders = exports.signItem = exports.myPackets = exports.startPacket = exports.offerContext = exports.restoreDocument = exports.removeDocument = exports.replaceDocument = exports.pendingCopies = exports.addDocuments = exports.getLibrary = void 0;
+exports.runReminders = exports.signItem = exports.myPackets = exports.startPacket = exports.offerContext = exports.restoreDocument = exports.removeDocument = exports.replaceDocument = exports.pendingCopies = exports.addDocuments = exports.adminAgencyOverview = exports.getLibrary = void 0;
 const http_status_1 = __importDefault(require("http-status"));
 const catchAsync_1 = __importDefault(require("../../../shared/catchAsync"));
 const sendResponse_1 = __importDefault(require("../../../shared/sendResponse"));
@@ -52,6 +52,11 @@ const currentUserId = (req) => { var _a, _b; return String(((_a = req.user) === 
 /** SCRUM-117: the agency Documents page — both groups + counts. */
 exports.getLibrary = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const result = yield EsignService.getLibrary(currentUserId(req));
+    (0, sendResponse_1.default)(res, { statusCode: http_status_1.default.OK, success: true, data: result });
+}));
+/** Admin oversight: what one agency uploaded, and what came back signed. */
+exports.adminAgencyOverview = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const result = yield EsignService.getAgencyOverview(req.params.agencyId);
     (0, sendResponse_1.default)(res, { statusCode: http_status_1.default.OK, success: true, data: result });
 }));
 /** SCRUM-117: multi-file upload into one role group. */

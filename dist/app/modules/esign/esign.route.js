@@ -41,6 +41,8 @@ router.get('/documents/:id/pending-copies', (0, auth_1.default)(user_1.ENUM_USER
 router.patch('/documents/:id/replace', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), upload.single('file'), EsignController.replaceDocument);
 router.delete('/documents/:id', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), EsignController.removeDocument);
 router.patch('/documents/:id/restore', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), EsignController.restoreDocument);
+// --- admin oversight of an agency's signing activity (read-only) ---
+router.get('/admin/agency/:agencyId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.ADMIN, user_1.ENUM_USER_ROLE.SUPER_ADMIN), EsignController.adminAgencyOverview);
 // --- SCRUM-118: caregiver signing flow ---
 router.get('/my-packets', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PRO), EsignController.myPackets);
 router.get('/offer/:offerId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PRO), EsignController.offerContext);

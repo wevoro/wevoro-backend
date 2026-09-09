@@ -61,6 +61,10 @@ const packetTransactionSchema = new Schema<any>(
 
     // --- SCRUM-115: Stripe linkage. Empty until a payment is attempted. ---
     stripePaymentIntentId: { type: String, index: true },
+    // Payment moved from an embedded card form to a Stripe-hosted checkout
+    // page: a stripe.com address reads as more trustworthy than a card form
+    // inside a modal, which is where agencies were hesitating.
+    stripeCheckoutSessionId: { type: String, index: true },
     // Stripe delivers webhooks at least once, so the handler must be able to
     // recognise an event it has already processed.
     stripeEventIds: { type: [String], default: [] },
