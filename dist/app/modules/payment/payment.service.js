@@ -203,6 +203,22 @@ const createCheckout = (params) => __awaiter(void 0, void 0, void 0, function* (
             transactionDate: new Date(),
         });
     }
+    else if (transaction.priceChargedCents !== priceCents) {
+        // "Locked, never recomputed" is right for a transaction that was PAID —
+        // the ledger must not rewrite what an agency was actually charged. It is
+        // wrong for one that never completed. An abandoned attempt from before a
+        // price change kept quoting the old amount forever: the admin page said
+        // $49.99 while this gate charged $60.00, and an agency sitting on a stale
+        // pending row could also keep buying at a price the founder had already
+        // raised. Nothing was charged for a pending/failed row, so re-price it to
+        // what the packet costs today. Paid rows never reach here — they return
+        // above through `owned`.
+        transaction.priceChargedCents = priceCents;
+        // The Stripe intent below carries an amount. Drop the stale one so a new
+        // intent is minted for the new price instead of confirming the old total.
+        transaction.stripePaymentIntentId = undefined;
+        yield transaction.save();
+    }
     if (isTestMode()) {
         // No Stripe. The client drives the state machine through /simulate.
         transaction.status = 'pending';
@@ -248,8 +264,11 @@ const createCheckout = (params) => __awaiter(void 0, void 0, void 0, function* (
             },
         }, 
         // Stripe-side idempotency: the same transaction never yields two charges
-        // even if this endpoint is called twice concurrently.
-        { idempotencyKey: `packet_${transaction._id}` });
+        // even if this endpoint is called twice concurrently. The price is part
+        // of the key because Stripe rejects a reused key whose parameters have
+        // changed — after a re-price above, the same transaction legitimately
+        // needs a second intent for the new amount.
+        { idempotencyKey: `packet_${transaction._id}_${transaction.priceChargedCents}` });
         transaction.stripePaymentIntentId = intent.id;
         yield transaction.save();
     }
