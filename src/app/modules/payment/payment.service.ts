@@ -75,6 +75,20 @@ const returnBase = (origin?: string): string => {
 const PACKET_TAX_CODE = process.env.STRIPE_PACKET_TAX_CODE || 'txcd_10701410';
 
 /**
+ * SCRUM-124: Stripe's own error text is for us, not for the agency. A refused
+ * checkout used to reach the payment screen verbatim — "Invalid line_items[0]:
+ * the product tax code is missing…", complete with a Stripe dashboard link and
+ * our account id. Log the detail and give the customer one plain sentence.
+ */
+const checkoutRefused = (err: any): never => {
+  console.error('[payment] Stripe refused the checkout session:', err?.message || err);
+  throw new ApiError(
+    httpStatus.BAD_GATEWAY,
+    "We couldn't open the secure checkout. Please try again in a moment."
+  );
+};
+
+/**
  * True when a real Stripe charge can be made. When false the module either
  * refuses (production) or simulates (QA with PAYMENTS_TEST_MODE=true).
  */
@@ -345,7 +359,7 @@ export const createCheckout = async (params: {
           new URL(returnTo).host
         }`,
       }
-    );
+    ).catch(checkoutRefused);
     transaction.stripeCheckoutSessionId = session.id;
     if (typeof session.payment_intent === 'string') {
       transaction.stripePaymentIntentId = session.payment_intent;
@@ -564,7 +578,12 @@ export const confirmFromStripe = async (params: {
 
   if (!transaction.stripePaymentIntentId) return transaction;
 
-  const intent = await stripe.paymentIntents.retrieve(transaction.stripePaymentIntentId);
+  // A Stripe hiccup here must not surface as an error on the payment screen
+  // (SCRUM-124); the transaction simply stays pending and the caller polls again.
+  const intent = await stripe.paymentIntents
+    .retrieve(transaction.stripePaymentIntentId)
+    .catch(() => null);
+  if (!intent) return transaction;
 
   if (intent.status === 'succeeded') {
     return markPaid({
