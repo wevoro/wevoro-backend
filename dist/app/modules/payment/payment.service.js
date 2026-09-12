@@ -107,6 +107,16 @@ const returnBase = (origin) => {
  */
 const PACKET_TAX_CODE = process.env.STRIPE_PACKET_TAX_CODE || 'txcd_10701410';
 /**
+ * SCRUM-124: Stripe's own error text is for us, not for the agency. A refused
+ * checkout used to reach the payment screen verbatim — "Invalid line_items[0]:
+ * the product tax code is missing…", complete with a Stripe dashboard link and
+ * our account id. Log the detail and give the customer one plain sentence.
+ */
+const checkoutRefused = (err) => {
+    console.error('[payment] Stripe refused the checkout session:', (err === null || err === void 0 ? void 0 : err.message) || err);
+    throw new ApiError_1.default(http_status_1.default.BAD_GATEWAY, "We couldn't open the secure checkout. Please try again in a moment.");
+};
+/**
  * True when a real Stripe charge can be made. When false the module either
  * refuses (production) or simulates (QA with PAYMENTS_TEST_MODE=true).
  */
@@ -339,7 +349,7 @@ const createCheckout = (params) => __awaiter(void 0, void 0, void 0, function* (
         // the same reason: QA and production sessions carry different URLs.
         {
             idempotencyKey: `packet_cs_${transaction._id}_${transaction.priceChargedCents}_${new URL(returnTo).host}`,
-        });
+        }).catch(checkoutRefused);
         transaction.stripeCheckoutSessionId = session.id;
         if (typeof session.payment_intent === 'string') {
             transaction.stripePaymentIntentId = session.payment_intent;
@@ -542,7 +552,13 @@ const confirmFromStripe = (params) => __awaiter(void 0, void 0, void 0, function
     }
     if (!transaction.stripePaymentIntentId)
         return transaction;
-    const intent = yield stripe.paymentIntents.retrieve(transaction.stripePaymentIntentId);
+    // A Stripe hiccup here must not surface as an error on the payment screen
+    // (SCRUM-124); the transaction simply stays pending and the caller polls again.
+    const intent = yield stripe.paymentIntents
+        .retrieve(transaction.stripePaymentIntentId)
+        .catch(() => null);
+    if (!intent)
+        return transaction;
     if (intent.status === 'succeeded') {
         return (0, exports.markPaid)({
             transactionId: String(transaction._id),
