@@ -41,6 +41,40 @@ const appUrl = (): string =>
   (process.env.APP_PUBLIC_URL || 'https://wevoro.com').replace(/\/+$/, '');
 
 /**
+ * The site to send the agency back to after Stripe.
+ *
+ * qa.wevoro.com and wevoro.com are served by this same backend project, so one
+ * APP_PUBLIC_URL can only ever name one of them — an agency paying on the other
+ * site was returned somewhere they were not signed in. The frontend now says
+ * which site the agency started on. Only WeVoro's own hosts are accepted, so the
+ * value cannot be used to bounce a paying agency to an arbitrary address.
+ */
+const RETURN_HOSTS = ['wevoro.com', 'www.wevoro.com', 'qa.wevoro.com', 'localhost'];
+
+const returnBase = (origin?: string): string => {
+  if (origin) {
+    try {
+      const url = new URL(origin);
+      const local = url.hostname === 'localhost';
+      if (RETURN_HOSTS.includes(url.hostname) && (url.protocol === 'https:' || local)) {
+        return url.origin;
+      }
+    } catch {
+      // Not a URL — fall back to the configured site.
+    }
+  }
+  return appUrl();
+};
+
+/**
+ * The Stripe account runs Managed Payments, which refuses any line item without
+ * an eligible product tax code: every checkout failed with "the product tax code
+ * is missing" and the agency never reached Stripe. A credential packet is
+ * information delivered electronically to a business, which is this category.
+ */
+const PACKET_TAX_CODE = process.env.STRIPE_PACKET_TAX_CODE || 'txcd_10701410';
+
+/**
  * True when a real Stripe charge can be made. When false the module either
  * refuses (production) or simulates (QA with PAYMENTS_TEST_MODE=true).
  */
@@ -150,6 +184,8 @@ export const getPacketStatus = async (params: {
 export const createCheckout = async (params: {
   agencyId: string;
   caregiverId: string;
+  /** The site the agency started on, so Stripe returns them there. */
+  returnOrigin?: string;
 }) => {
   const { agencyId, caregiverId } = params;
 
@@ -235,15 +271,24 @@ export const createCheckout = async (params: {
     );
   }
 
+  const returnTo = `${returnBase(params.returnOrigin)}/partner/pros/${caregiverId}`;
+
   // Reuse an open session so a retry does not stack checkout pages, and so
-  // returning to the gate lands the agency back on the page they left.
+  // returning to the gate lands the agency back on the page they left. A session
+  // opened from the other site would send them back there, so it is not reused.
   let session: Stripe.Checkout.Session | null = null;
   if (transaction.stripeCheckoutSessionId) {
     try {
       const existing = await stripe.checkout.sessions.retrieve(
         transaction.stripeCheckoutSessionId
       );
-      if (existing.status === 'open' && existing.url) session = existing;
+      if (
+        existing.status === 'open' &&
+        existing.url &&
+        (existing.success_url || '').startsWith(returnTo)
+      ) {
+        session = existing;
+      }
     } catch {
       // Session vanished or belongs to another key — fall through and make one.
     }
@@ -251,7 +296,6 @@ export const createCheckout = async (params: {
 
   if (!session) {
     const caregiverName = await displayName(caregiverId);
-    const returnTo = `${appUrl()}/partner/pros/${caregiverId}`;
     session = await stripe.checkout.sessions.create(
       {
         mode: 'payment',
@@ -265,6 +309,7 @@ export const createCheckout = async (params: {
                 name: `${caregiverName} — credential packet`,
                 description:
                   'One-time purchase. Includes e-signature tracking and free re-downloads.',
+                tax_code: PACKET_TAX_CODE,
               },
             },
           },
@@ -293,8 +338,13 @@ export const createCheckout = async (params: {
       // sessions even if this endpoint is called twice concurrently. The price
       // is part of the key because Stripe rejects a reused key whose parameters
       // have changed — after a re-price above, the same transaction legitimately
-      // needs a second session for the new amount.
-      { idempotencyKey: `packet_cs_${transaction._id}_${transaction.priceChargedCents}` }
+      // needs a second session for the new amount. The return site is in it for
+      // the same reason: QA and production sessions carry different URLs.
+      {
+        idempotencyKey: `packet_cs_${transaction._id}_${transaction.priceChargedCents}_${
+          new URL(returnTo).host
+        }`,
+      }
     );
     transaction.stripeCheckoutSessionId = session.id;
     if (typeof session.payment_intent === 'string') {

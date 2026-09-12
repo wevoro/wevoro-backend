@@ -13,4 +13,6 @@ const router = express_1.default.Router();
 router.get('/caregiver-engagements', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PRO), credentialing_controller_1.CredentialingController.getCaregiverEngagements);
 // SCRUM-88: agency's credentialing-mode Offers tab (Submitted/Received).
 router.get('/agency-engagements', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), credentialing_controller_1.CredentialingController.getAgencyEngagements);
+// SCRUM-122: a signed-in agency opened a caregiver's share link.
+router.post('/share/:shareId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), credentialing_controller_1.CredentialingController.recordShareVisit);
 exports.CredentialingRoutes = router;

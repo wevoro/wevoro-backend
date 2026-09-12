@@ -40,7 +40,28 @@ const getAgencyEngagements = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+/**
+ * SCRUM-122: an agency that is already signed in opened a caregiver's share
+ * link. That is the same "came in through this caregiver" moment as signing up
+ * with the link, so the caregiver belongs in the agency's Submitted tab.
+ */
+const recordShareVisit = catchAsync(async (req: Request, res: Response) => {
+  const agencyId = req.user?._id as string;
+  const engagement = await CredentialingService.recordShareEngagement(
+    req.params.shareId,
+    agencyId
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: engagement ? 'Engagement recorded' : 'Nothing to record',
+    data: { recorded: !!engagement },
+  });
+});
+
 export const CredentialingController = {
   getCaregiverEngagements,
   getAgencyEngagements,
+  recordShareVisit,
 };

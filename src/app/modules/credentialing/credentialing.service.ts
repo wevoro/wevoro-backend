@@ -4,6 +4,8 @@ import { DownloadAudit } from '../document/download-audit.model';
 import { PersonalInfo } from '../user/personal-info.model';
 import { ProfessionalInfo } from '../user/professional-info.model';
 import { Notification } from '../user/notification.model';
+import { User } from '../user/user.model';
+import { ENUM_USER_ROLE } from '../../../enums/user';
 
 /**
  * SCRUM-87/88: Credentialing-mode engagement service.
@@ -70,6 +72,56 @@ const recordEngagement = async (
 };
 
 /**
+ * SCRUM-122: resolve a share link to its caregiver. Links carry the caregiver's
+ * shareId; caregivers created before shareId existed were shared by _id, so fall
+ * back to that, as getUserByShareId does. Only a caregiver account counts.
+ */
+const caregiverFromShare = async (shareId?: string): Promise<string | null> => {
+  if (!shareId) return null;
+  let caregiver: any = await User.findOne({ shareId }).select('_id role').lean();
+  if (!caregiver && mongoose.Types.ObjectId.isValid(shareId)) {
+    caregiver = await User.findById(shareId).select('_id role').lean();
+  }
+  return caregiver && caregiver.role === ENUM_USER_ROLE.PRO
+    ? String(caregiver._id)
+    : null;
+};
+
+/**
+ * SCRUM-122: an agency came in through a caregiver's share link — record it.
+ *
+ * The engagement used to be written only when the old onboarding form was
+ * saved. The passwordless flow (SCRUM-99) signs the agency in and takes them
+ * straight to the caregiver's profile, so that form never ran: the caregiver
+ * never appeared in the agency's Offers › Submitted tab, and once the agency
+ * navigated away they had no way back without the original link.
+ *
+ * Called when an agency signs in with a share link (new or returning) and when
+ * an already signed-in agency opens one. Idempotent via recordEngagement.
+ */
+const recordShareEngagement = async (
+  shareId: string | undefined,
+  agencyId: string
+): Promise<any> => {
+  const caregiverId = await caregiverFromShare(shareId);
+  if (!caregiverId) return null;
+
+  const agency = await User.findById(agencyId).select('role sourceCaregiverId');
+  if (!agency || agency.role !== ENUM_USER_ROLE.PARTNER) return null;
+
+  // Keep the first referring caregiver on the account; later links add
+  // engagements but do not rewrite where the agency originally came from.
+  if (!(agency as any).sourceCaregiverId) {
+    await User.updateOne(
+      { _id: agencyId },
+      { $set: { sourceCaregiverId: caregiverId } }
+    );
+  }
+
+  return recordEngagement(caregiverId, agencyId);
+};
+
+/**
  * SCRUM-67: fire the one-time "Credentials Downloaded" notification to the
  * caregiver. Caller (download.service) is responsible for first-download
  * detection so this fires exactly once per (caregiver, agency) pair.
@@ -99,6 +151,19 @@ const getCaregiverEngagements = async (
   caregiverId: string
 ): Promise<{ received: any[]; submitted: any[] }> => {
   const caregiverObjId = new mongoose.Types.ObjectId(caregiverId);
+
+  // SCRUM-122: agencies that already signed up through this caregiver's link
+  // before the fix carry the caregiver on their account but have no engagement.
+  // Write the missing ones on read, so nobody has to sign up again.
+  const referred = await User.find({
+    role: ENUM_USER_ROLE.PARTNER,
+    sourceCaregiverId: caregiverId,
+  })
+    .select('_id')
+    .lean();
+  for (const agency of referred) {
+    await recordEngagement(caregiverId, String(agency._id)).catch(() => null);
+  }
 
   const engagements = await CredentialingEngagement.find({
     caregiver: caregiverId,
@@ -170,6 +235,18 @@ const getAgencyEngagements = async (
 ): Promise<{ received: any[]; submitted: any[] }> => {
   const agencyObjId = new mongoose.Types.ObjectId(agencyId);
 
+  // SCRUM-122: same healing from the agency's side — an agency that signed up
+  // through a share link before the fix has the caregiver on its account but an
+  // empty Submitted tab.
+  const account: any = await User.findById(agencyId)
+    .select('sourceCaregiverId')
+    .lean();
+  if (account?.sourceCaregiverId) {
+    await recordEngagement(String(account.sourceCaregiverId), agencyId).catch(
+      () => null
+    );
+  }
+
   const engagements = await CredentialingEngagement.find({
     agency: agencyId,
   }).lean();
@@ -237,6 +314,7 @@ const getAgencyEngagements = async (
 
 export const CredentialingService = {
   recordEngagement,
+  recordShareEngagement,
   notifyCredentialsDownloaded,
   getCaregiverEngagements,
   getAgencyEngagements,

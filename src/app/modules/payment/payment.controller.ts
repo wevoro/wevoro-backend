@@ -28,6 +28,7 @@ export const checkout = catchAsync(async (req: Request, res: Response) => {
   const result = await PaymentService.createCheckout({
     agencyId: currentUserId(req),
     caregiverId: req.params.caregiverId,
+    returnOrigin: req.body?.returnOrigin,
   });
   sendResponse(res, {
     statusCode: httpStatus.OK,
