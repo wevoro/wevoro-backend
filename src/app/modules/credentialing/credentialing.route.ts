@@ -19,4 +19,11 @@ router.get(
   CredentialingController.getAgencyEngagements
 );
 
+// SCRUM-122: a signed-in agency opened a caregiver's share link.
+router.post(
+  '/share/:shareId',
+  auth(ENUM_USER_ROLE.PARTNER),
+  CredentialingController.recordShareVisit
+);
+
 export const CredentialingRoutes = router;

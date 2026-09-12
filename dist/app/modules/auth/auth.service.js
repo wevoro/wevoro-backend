@@ -36,6 +36,7 @@ const documents_model_1 = require("../document/documents.model");
 const personal_info_model_1 = require("../user/personal-info.model");
 const professional_info_model_1 = require("../user/professional-info.model");
 const user_model_1 = require("../user/user.model");
+const credentialing_service_1 = require("../credentialing/credentialing.service");
 const sendMail_1 = require("./sendMail");
 const loginUser = (payload) => __awaiter(void 0, void 0, void 0, function* () {
     const { email, password, source } = payload;
@@ -334,6 +335,19 @@ const verifyLoginCode = (payload) => __awaiter(void 0, void 0, void 0, function*
     }
     yield user_model_1.User.updateOne({ email }, { otp: null, otpExpiry: null, lastLoginAt: new Date() });
     const { role, _id, status } = user;
+    // SCRUM-122: an agency signing in through a caregiver's share link — new or
+    // returning — has come in through that caregiver. This is where the
+    // engagement is recorded now; it used to be written only by the old
+    // onboarding form, which the passwordless flow never shows, so the caregiver
+    // never reached the agency's Submitted tab. Best-effort: never block a login.
+    if (role === user_1.ENUM_USER_ROLE.PARTNER && payload.sourceShareId) {
+        try {
+            yield credentialing_service_1.CredentialingService.recordShareEngagement(payload.sourceShareId, String(_id));
+        }
+        catch (err) {
+            console.error('[verifyLoginCode] share-link engagement failed:', err);
+        }
+    }
     const permissions = user.permissions || [];
     const accessToken = jwtHelpers_1.jwtHelpers.createToken({ email, role, _id, status, permissions }, config_1.default.jwt.secret, config_1.default.jwt.expires_in);
     const refreshToken = jwtHelpers_1.jwtHelpers.createToken({ email, role, _id, status, permissions }, config_1.default.jwt.refresh_secret, config_1.default.jwt.refresh_expires_in);

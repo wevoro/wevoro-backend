@@ -58,9 +58,11 @@ exports.packetStatus = (0, catchAsync_1.default)((req, res) => __awaiter(void 0,
 }));
 /** Open (or resume) a purchase. Returns a Stripe client secret when live. */
 exports.checkout = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     const result = yield PaymentService.createCheckout({
         agencyId: currentUserId(req),
         caregiverId: req.params.caregiverId,
+        returnOrigin: (_a = req.body) === null || _a === void 0 ? void 0 : _a.returnOrigin,
     });
     (0, sendResponse_1.default)(res, {
         statusCode: http_status_1.default.OK,
