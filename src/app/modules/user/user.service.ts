@@ -341,6 +341,54 @@ const updateOrCreateUserPersonalInformation = async (
   return result;
 };
 
+// SCRUM-99 (Phase 2): the simplified "Complete your agency account" step for
+// passwordless agencies. Saves the four lookup fields the admin uses to verify
+// against the Georgia Home Care Provider Registry + Secretary of State (contact
+// name, agency name, city, state) plus the CPR providers this agency accepts,
+// then advances the account from Non-confirmed (pending) to Pending Verification
+// (in-review) so it surfaces in the admin review queue. Confirmation (approved)
+// still happens only after the admin's manual lookup — that is what unlocks the
+// sensitive-credential tier (see credential-visibility.ts).
+const completeAgencyProfile = async (
+  userId: string,
+  payload: {
+    firstName?: string;
+    lastName?: string;
+    companyName?: string;
+    city?: string;
+    state?: string;
+    acceptedCprProviders?: string[];
+  }
+): Promise<any> => {
+  const { firstName, lastName, companyName, city, state, acceptedCprProviders } =
+    payload || {};
+
+  const set: Record<string, any> = {};
+  if (firstName !== undefined) set.firstName = firstName;
+  if (lastName !== undefined) set.lastName = lastName;
+  if (companyName !== undefined) set.companyName = companyName;
+  if (city !== undefined) set['address.city'] = city;
+  if (state !== undefined) set['address.state'] = state;
+  if (Array.isArray(acceptedCprProviders)) {
+    set.acceptedCprProviders = acceptedCprProviders;
+  }
+
+  await PersonalInfo.findOneAndUpdate(
+    { user: userId },
+    { $set: set, $setOnInsert: { user: userId } },
+    { new: true, upsert: true }
+  );
+
+  // Only a Non-confirmed agency advances to Pending Verification. Never demote a
+  // Confirmed (approved) or already-in-review account from here.
+  const account = await User.findById(userId).select('role status');
+  if (account?.role === ENUM_USER_ROLE.PARTNER && account.status === 'pending') {
+    await User.findByIdAndUpdate(userId, { status: 'in-review' });
+  }
+
+  return { status: 'in-review' };
+};
+
 const updateOrCreateUserProfessionalInformation = async (
   payload: any,
   id: string,
@@ -557,7 +605,10 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
   return result.length > 0 ? result[0] : null;
 };
 
-const getUserById = async (id: string): Promise<IUser | null> => {
+const getUserById = async (
+  id: string,
+  requesterId?: string
+): Promise<IUser | null> => {
   if (!id) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'User id is required');
   }
@@ -623,7 +674,38 @@ const getUserById = async (id: string): Promise<IUser | null> => {
     },
   ]);
 
-  return result.length > 0 ? result[0] : null;
+  const user = result.length > 0 ? result[0] : null;
+
+  // SCRUM-99: gate the sensitive GCHEXS background check on the profile view.
+  // Only the owner, an admin/super_admin, or a CONFIRMED (approved) agency may
+  // see the status + document link. For everyone else — anonymous callers, a
+  // Non-confirmed/Pending agency, or another caregiver — strip it. Mirrors the
+  // credential tier gate (credential-visibility.ts) for the professional-info surface.
+  if (user && user.professionalInfo) {
+    let authorized = false;
+    if (requesterId && requesterId.toString() === id.toString()) {
+      authorized = true; // owner
+    } else if (requesterId) {
+      const requester = await User.findById(requesterId).select('role status');
+      if (
+        requester &&
+        (requester.role === ENUM_USER_ROLE.ADMIN ||
+          requester.role === ENUM_USER_ROLE.SUPER_ADMIN ||
+          (requester.role === ENUM_USER_ROLE.PARTNER &&
+            requester.status === 'approved'))
+      ) {
+        authorized = true;
+      }
+    }
+    if (!authorized) {
+      delete user.professionalInfo.gchexsStatus;
+      delete user.professionalInfo.gchexsDocumentUrl;
+      delete user.professionalInfo.gchexsDocumentFileId;
+      delete user.professionalInfo.gchexsUpdatedAt;
+    }
+  }
+
+  return user;
 };
 
 const getUserByShareId = async (shareId: string): Promise<any> => {
@@ -1466,6 +1548,7 @@ export const UserService = {
   ensureSuperAdmin,
   getUserProfile,
   updateOrCreateUserPersonalInformation,
+  completeAgencyProfile,
   updateOrCreateUserProfessionalInformation,
   // updateOrCreateUserDocuments,
   getUserById,

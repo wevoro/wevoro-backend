@@ -5,6 +5,19 @@ import config from '../../../config';
 import { ENUM_USER_ROLE } from '../../../enums/user';
 import ApiError from '../../../errors/ApiError';
 import { calculatePartnerPercentage } from '../../../helpers/calculatePartnerPercentage';
+
+/**
+ * SCRUM-99: the agency completion form collects contact name, agency name, city
+ * and state. Treat it as done when those are on file — this is the signal that
+ * drives the post-login redirect, not completionPercentage.
+ */
+const isAgencyProfileComplete = (personalInfo: any): boolean =>
+  !!(
+    personalInfo?.companyName &&
+    personalInfo?.address?.city &&
+    personalInfo?.address?.state
+  );
+
 import { calculateProCompletion } from '../../../helpers/calculateProCompletion';
 import { jwtHelpers } from '../../../helpers/jwtHelpers';
 import { Documents } from '../document/documents.model';
@@ -45,6 +58,16 @@ const loginUser = async (payload: ILoginUser): Promise<ILoginUserResponse> => {
     throw new ApiError(
       httpStatus.BAD_REQUEST,
       'Your account is associated with google! Please use google login.'
+    );
+  }
+
+  // SCRUM-99: passwordless agency accounts must use the email-code flow, not
+  // the password form (otherwise the empty-password branch below would let
+  // anyone in without a code).
+  if (isUserExist && (isUserExist as any).isPasswordless) {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      'This account uses email-code login. Please continue with your email code.'
     );
   }
 
@@ -118,6 +141,7 @@ const loginUser = async (payload: ILoginUser): Promise<ILoginUserResponse> => {
       fields,
       personalInfo
     );
+    returnData.agencyProfileComplete = isAgencyProfileComplete(personalInfo);
   }
 
   return returnData;
@@ -217,6 +241,7 @@ const loginWithGoogle = async (
       fields,
       personalInfo
     );
+    returnData.agencyProfileComplete = isAgencyProfileComplete(personalInfo);
   }
 
   console.log('🚀 ~ loginWithGoogle ~ returnData:', returnData);
@@ -372,6 +397,168 @@ const verifyOtp = async (payload: { email: string; otp: string }) => {
   );
 };
 
+// SCRUM-99: passwordless login/signup for agencies (email + code).
+// Sends a 6-digit code; creates the account on first use so the caregiver-link
+// flow (Flow 2) is one step: email -> code -> session.
+const requestLoginCode = async (payload: {
+  email: string;
+  role?: string;
+  sourceShareId?: string;
+}) => {
+  const email = (payload.email || '').toLowerCase().trim();
+  if (!email) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Email is required');
+  }
+
+  const isGoogleUser = await User.isGoogleUser(email);
+  if (isGoogleUser) {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      'This account uses Google login. Please continue with Google.'
+    );
+  }
+
+  let user = await User.findOne(
+    { email, isGoogleUser: false },
+    { email: 1, role: 1, _id: 1, status: 1, isPasswordless: 1 }
+  );
+
+  // Existing password accounts must use password login — EXCEPT agencies (partners),
+  // whose password login was retired in SCRUM-99 ("New Login Method"). Partners log in
+  // with an emailed code even if they still carry a legacy password; admins/caregivers
+  // keep password login. (verifyLoginCode already accepts any account with a valid code,
+  // so this guard is the only thing that was locking existing agencies out.)
+  if (
+    user &&
+    !(user as any).isPasswordless &&
+    user.role !== ENUM_USER_ROLE.PARTNER
+  ) {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      'This account uses a password. Please log in with your password.'
+    );
+  }
+
+  let isNewUser = false;
+  if (!user) {
+    const role = payload.role || ENUM_USER_ROLE.PARTNER;
+    // Resolve caregiver share-link attribution (mirrors createUser).
+    let sourceCaregiverId: any = undefined;
+    if (payload.sourceShareId) {
+      const caregiver = await User.findOne(
+        { shareId: payload.sourceShareId },
+        { _id: 1 }
+      );
+      if (caregiver) sourceCaregiverId = caregiver._id;
+    }
+    user = await User.create({
+      email,
+      role,
+      isPasswordless: true,
+      sourceShareId: payload.sourceShareId,
+      sourceCaregiverId,
+    });
+    isNewUser = true;
+  }
+
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes for login
+
+  await User.updateOne({ email }, { otp, otpExpiry });
+
+  await sendEmail(
+    email,
+    'Your WeVoro login code',
+    `
+      <div>
+        <p>Your WeVoro login code is: <strong>${otp}</strong></p>
+        <p>This code is valid for 10 minutes.</p>
+        <p>If you didn't request this, you can ignore this email.</p>
+      </div>
+    `
+  );
+
+  return { otpExpiry, isNewUser };
+};
+
+// SCRUM-99: verify the emailed code and issue a session (access + refresh tokens).
+const verifyLoginCode = async (payload: {
+  email: string;
+  otp: string;
+}): Promise<ILoginUserResponse> => {
+  const email = (payload.email || '').toLowerCase().trim();
+  const { otp } = payload;
+
+  const user = await User.findOne(
+    { email },
+    { otp: 1, otpExpiry: 1, role: 1, status: 1, permissions: 1, email: 1 }
+  );
+
+  if (!user) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'User not found!');
+  }
+
+  if (user.status === 'blocked') {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      'Your account is blocked! Please contact support.'
+    );
+  }
+
+  if (!user.otp || !user.otpExpiry || new Date() > user.otpExpiry) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Code has expired or is invalid!');
+  }
+
+  if (user.otp !== otp) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Invalid code!');
+  }
+
+  await User.updateOne(
+    { email },
+    { otp: null, otpExpiry: null, lastLoginAt: new Date() }
+  );
+
+  const { role, _id, status } = user;
+  const permissions = (user as any).permissions || [];
+
+  const accessToken = jwtHelpers.createToken(
+    { email, role, _id, status, permissions },
+    config.jwt.secret as Secret,
+    config.jwt.expires_in as string
+  );
+
+  const refreshToken = jwtHelpers.createToken(
+    { email, role, _id, status, permissions },
+    config.jwt.refresh_secret as Secret,
+    config.jwt.refresh_expires_in as string
+  );
+
+  const returnData: ILoginUserResponse = { accessToken, refreshToken };
+
+  // Completion percentage drives the post-login redirect (mirror loginUser).
+  const personalInfo = await PersonalInfo.findOne({ user: _id });
+  if (role === ENUM_USER_ROLE.PARTNER) {
+    const fields = [
+      'image',
+      'firstName',
+      'lastName',
+      'phone',
+      'bio',
+      'dateOfBirth',
+      'companyName',
+      'industry',
+      'address',
+    ];
+    returnData.completionPercentage = calculatePartnerPercentage(
+      fields,
+      personalInfo
+    );
+    returnData.agencyProfileComplete = isAgencyProfileComplete(personalInfo);
+  }
+
+  return returnData;
+};
+
 const resetPassword = async (payload: { email: string; password: string }) => {
   const { email, password } = payload;
 
@@ -403,6 +590,8 @@ const resetPassword = async (payload: { email: string; password: string }) => {
 
 export const AuthService = {
   loginUser,
+  requestLoginCode,
+  verifyLoginCode,
   loginWithGoogle,
   refreshToken,
   changePassword,

@@ -115,8 +115,36 @@ const resetPassword = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, 
         message: 'Password reset successfully!',
     });
 }));
+// SCRUM-99: passwordless agency login — send the emailed code
+const requestLoginCode = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const result = yield auth_service_1.AuthService.requestLoginCode(req.body);
+    (0, sendResponse_1.default)(res, {
+        statusCode: 200,
+        success: true,
+        message: 'We sent a login code to your email.',
+        data: result,
+    });
+}));
+// SCRUM-99: passwordless agency login — verify the code and start a session
+const verifyLoginCode = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const result = yield auth_service_1.AuthService.verifyLoginCode(req.body);
+    const { refreshToken } = result;
+    const cookieOptions = {
+        secure: config_1.default.env === 'production',
+        httpOnly: true,
+    };
+    res.cookie('refreshToken', refreshToken, cookieOptions);
+    (0, sendResponse_1.default)(res, {
+        statusCode: 200,
+        success: true,
+        message: 'Logged in successfully!',
+        data: result,
+    });
+}));
 exports.AuthController = {
     loginUser,
+    requestLoginCode,
+    verifyLoginCode,
     refreshToken,
     changePassword,
     forgotPass,

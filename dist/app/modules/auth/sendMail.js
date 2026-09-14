@@ -15,13 +15,63 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendEmail = sendEmail;
 const nodemailer_1 = __importDefault(require("nodemailer"));
 const config_1 = __importDefault(require("../../../config"));
+/**
+ * Sends an email.
+ *
+ * SCRUM-99: on Vercel serverless, raw SMTP (Gmail:587) is unreliable and
+ * frequently times out — which is why the OTP / login-code emails were failing
+ * ("Failed to send email"). When RESEND_API_KEY is set we send over Resend's
+ * HTTP API instead, which is serverless-friendly; otherwise we fall back to
+ * Gmail SMTP for local development.
+ *
+ * RESEND_API_KEY is provisioned in Vercel (preview + production) on the client's
+ * Resend account, so on the deployed backend email is sent via Resend.
+ */
 function sendEmail(to, subject, html) {
     return __awaiter(this, void 0, void 0, function* () {
+        var _a;
+        const resendKey = config_1.default.resend_api_key;
+        // Preferred path: Resend HTTP API (works reliably on serverless).
+        if (resendKey) {
+            const from = config_1.default.email_from || 'WeVoro <onboarding@resend.dev>';
+            try {
+                const res = yield fetch('https://api.resend.com/emails', {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${resendKey}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ from, to, subject, html }),
+                });
+                if (!res.ok) {
+                    const body = yield res.text();
+                    console.error('Error sending email (Resend):', res.status, body);
+                    // Surface the provider's own message. This used to throw a bare
+                    // "Failed to send email", which hid genuinely actionable errors such as
+                    // Resend's 403 "you can only send testing emails to your own address".
+                    let detail = body;
+                    try {
+                        detail = ((_a = JSON.parse(body)) === null || _a === void 0 ? void 0 : _a.message) || body;
+                    }
+                    catch (_b) {
+                        /* keep raw body */
+                    }
+                    throw new Error(`Failed to send email (Resend ${res.status}): ${detail}`);
+                }
+                return yield res.json();
+            }
+            catch (error) {
+                console.error('Error sending email (Resend):', error);
+                throw new Error('Failed to send email');
+            }
+        }
+        // Fallback: Gmail SMTP (works locally; can be flaky on serverless).
         try {
+            const port = config_1.default.email_port || 587;
             const transporter = nodemailer_1.default.createTransport({
-                host: 'smtp.gmail.com',
-                port: 587,
-                secure: false,
+                host: config_1.default.email_host || 'smtp.gmail.com',
+                port,
+                secure: port === 465, // 465 = implicit TLS, 587 = STARTTLS
                 auth: {
                     user: config_1.default.email,
                     pass: config_1.default.appPass,
@@ -31,12 +81,12 @@ function sendEmail(to, subject, html) {
                 from: config_1.default.email,
                 to,
                 subject,
-                html, // html body
+                html,
             });
             return result;
         }
         catch (error) {
-            console.error('Error sending email:', error);
+            console.error('Error sending email (SMTP):', error);
             throw new Error('Failed to send email');
         }
     });

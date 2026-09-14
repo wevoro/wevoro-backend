@@ -37,7 +37,11 @@ const getUserDocuments = catchAsync(async (req: Request, res: Response) => {
   const queryUserId = req.query.userId;
   const userId = queryUserId ? queryUserId : req.user?._id;
 
-  const result = await DocumentService.getUserDocuments(userId as string);
+  // SCRUM-99: pass the requester so agencies are gated to their allowed tier.
+  const result = await DocumentService.getUserDocuments(
+    userId as string,
+    req.user?._id as string
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -66,7 +70,19 @@ const deleteDocument = catchAsync(async (req: Request, res: Response) => {
 
 const reviewDocument = catchAsync(async (req: Request, res: Response) => {
   const { documentId } = req.params;
-  const { reviewStatus, credentialIdNumber, credentialIssueDate, credentialExpirationDate, issuingOrganization, rejectionReason } = req.body;
+  const {
+    reviewStatus,
+    credentialIdNumber,
+    credentialIssueDate,
+    credentialExpirationDate,
+    issuingOrganization,
+    rejectionReason,
+    // SCRUM-109
+    rejectionReasonCode,
+    requestReplacement,
+    aiSuggestedReason,
+    adminAgreedWithAi,
+  } = req.body;
 
   const result = await DocumentService.reviewDocument(documentId, {
     reviewStatus,
@@ -75,6 +91,11 @@ const reviewDocument = catchAsync(async (req: Request, res: Response) => {
     credentialExpirationDate,
     issuingOrganization,
     rejectionReason,
+    rejectionReasonCode,
+    requestReplacement,
+    aiSuggestedReason,
+    adminAgreedWithAi,
+    reviewedBy: (req as any).user?._id,
   });
 
   sendResponse(res, {
