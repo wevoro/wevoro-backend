@@ -29,6 +29,11 @@ const NotificationSchema = new Schema<any>(
         // SCRUM-87/88: credentialing-mode engagement notifications
         'agency_onboarded',
         'credentials_downloaded',
+        // SCRUM-117/118: e-signature flow
+        'esign_reminder',
+        'esign_completed',
+        'esign_replaced',
+        'esign_added',
       ],
       default: 'general',
     },
