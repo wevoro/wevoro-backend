@@ -70,7 +70,25 @@ const deleteDocument = catchAsync(async (req: Request, res: Response) => {
 
 const reviewDocument = catchAsync(async (req: Request, res: Response) => {
   const { documentId } = req.params;
-  const { reviewStatus, credentialIdNumber, credentialIssueDate, credentialExpirationDate, issuingOrganization, rejectionReason } = req.body;
+  const {
+    reviewStatus,
+    credentialIdNumber,
+    credentialIssueDate,
+    credentialExpirationDate,
+    issuingOrganization,
+    rejectionReason,
+    // SCRUM-109
+    rejectionReasonCode,
+    requestReplacement,
+    aiSuggestedReason,
+    adminAgreedWithAi,
+    // SCRUM-109: confirm a credential that has no fixed renewal date. Dropped
+    // here until now, so the service never saw it and the "expiry is required"
+    // guard threw on every never-expiring credential — the checkbox, the model
+    // field and the caregiver-facing "No official expiration date" copy all
+    // existed but were unreachable.
+    hasNoExpiration,
+  } = req.body;
 
   const result = await DocumentService.reviewDocument(documentId, {
     reviewStatus,
@@ -79,6 +97,12 @@ const reviewDocument = catchAsync(async (req: Request, res: Response) => {
     credentialExpirationDate,
     issuingOrganization,
     rejectionReason,
+    rejectionReasonCode,
+    requestReplacement,
+    aiSuggestedReason,
+    adminAgreedWithAi,
+    hasNoExpiration,
+    reviewedBy: (req as any).user?._id,
   });
 
   sendResponse(res, {
@@ -91,7 +115,12 @@ const reviewDocument = catchAsync(async (req: Request, res: Response) => {
 
 const getCredentialStatus = catchAsync(async (req: Request, res: Response) => {
   const { userId } = req.params;
-  const result = await DocumentService.getCredentialStatus(userId);
+  // SCRUM-99 / SCRUM-119: pass the requester, so this view is gated to the
+  // caller's tier and withholds the file url until the packet is paid for.
+  const result = await DocumentService.getCredentialStatus(
+    userId,
+    req.user?._id as string
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -129,6 +158,25 @@ const downloadDocument = catchAsync(async (req: Request, res: Response) => {
 });
 
 // SCRUM-67: Get bulk download package info
+// SCRUM-119: the locked/unlocked file list for the documents modal. Viewing is
+// free, so this returns metadata for every file but a url only once paid.
+const getPacketManifest = catchAsync(async (req: Request, res: Response) => {
+  const { caregiverUserId } = req.params;
+  const agencyId = req.user?._id;
+
+  const result = await DownloadService.getPacketManifest(
+    caregiverUserId,
+    agencyId as string
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Packet manifest retrieved!',
+    data: result,
+  });
+});
+
 const getDownloadPackage = catchAsync(async (req: Request, res: Response) => {
   const { caregiverUserId } = req.params;
   const agencyId = req.user?._id;
@@ -211,6 +259,7 @@ export const DocumentController = {
   removeCredential,
   downloadDocument,
   getDownloadPackage,
+  getPacketManifest,
   requestPrivateAccess,
   updatePrivateAccess,
   getAccessRequests,

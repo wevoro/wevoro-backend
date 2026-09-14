@@ -15,20 +15,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendEmail = sendEmail;
 const nodemailer_1 = __importDefault(require("nodemailer"));
 const config_1 = __importDefault(require("../../../config"));
-/**
- * Sends an email.
- *
- * SCRUM-99: on Vercel serverless, raw SMTP (Gmail:587) is unreliable and
- * frequently times out — which is why the OTP / login-code emails were failing
- * ("Failed to send email"). When RESEND_API_KEY is set we send over Resend's
- * HTTP API instead, which is serverless-friendly; otherwise we fall back to
- * Gmail SMTP for local development.
- *
- * RESEND_API_KEY is provisioned in Vercel (preview + production) on the client's
- * Resend account, so on the deployed backend email is sent via Resend.
- */
-function sendEmail(to, subject, html) {
+function sendEmail(to, subject, html, attachments) {
     return __awaiter(this, void 0, void 0, function* () {
+        var _a;
         const resendKey = config_1.default.resend_api_key;
         // Preferred path: Resend HTTP API (works reliably on serverless).
         if (resendKey) {
@@ -40,12 +29,32 @@ function sendEmail(to, subject, html) {
                         Authorization: `Bearer ${resendKey}`,
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ from, to, subject, html }),
+                    body: JSON.stringify(Object.assign({ from,
+                        to,
+                        subject,
+                        html }, ((attachments === null || attachments === void 0 ? void 0 : attachments.length)
+                        ? {
+                            attachments: attachments.map((a) => ({
+                                filename: a.filename,
+                                content: a.content.toString('base64'),
+                            })),
+                        }
+                        : {}))),
                 });
                 if (!res.ok) {
                     const body = yield res.text();
                     console.error('Error sending email (Resend):', res.status, body);
-                    throw new Error('Failed to send email');
+                    // Surface the provider's own message. This used to throw a bare
+                    // "Failed to send email", which hid genuinely actionable errors such as
+                    // Resend's 403 "you can only send testing emails to your own address".
+                    let detail = body;
+                    try {
+                        detail = ((_a = JSON.parse(body)) === null || _a === void 0 ? void 0 : _a.message) || body;
+                    }
+                    catch (_b) {
+                        /* keep raw body */
+                    }
+                    throw new Error(`Failed to send email (Resend ${res.status}): ${detail}`);
                 }
                 return yield res.json();
             }
@@ -66,12 +75,16 @@ function sendEmail(to, subject, html) {
                     pass: config_1.default.appPass,
                 },
             });
-            const result = yield transporter.sendMail({
-                from: config_1.default.email,
-                to,
-                subject,
-                html,
-            });
+            const result = yield transporter.sendMail(Object.assign(Object.assign({ from: config_1.default.email, to }, ((attachments === null || attachments === void 0 ? void 0 : attachments.length)
+                ? {
+                    attachments: attachments.map((a) => ({
+                        filename: a.filename,
+                        content: a.content,
+                        contentType: a.contentType,
+                    })),
+                }
+                : {})), { subject,
+                html }));
             return result;
         }
         catch (error) {

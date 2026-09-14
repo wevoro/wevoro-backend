@@ -64,8 +64,17 @@ const deleteDocument = (0, catchAsync_1.default)((req, res) => __awaiter(void 0,
     });
 }));
 const reviewDocument = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     const { documentId } = req.params;
-    const { reviewStatus, credentialIdNumber, credentialIssueDate, credentialExpirationDate, issuingOrganization, rejectionReason } = req.body;
+    const { reviewStatus, credentialIdNumber, credentialIssueDate, credentialExpirationDate, issuingOrganization, rejectionReason, 
+    // SCRUM-109
+    rejectionReasonCode, requestReplacement, aiSuggestedReason, adminAgreedWithAi, 
+    // SCRUM-109: confirm a credential that has no fixed renewal date. Dropped
+    // here until now, so the service never saw it and the "expiry is required"
+    // guard threw on every never-expiring credential — the checkbox, the model
+    // field and the caregiver-facing "No official expiration date" copy all
+    // existed but were unreachable.
+    hasNoExpiration, } = req.body;
     const result = yield document_service_1.DocumentService.reviewDocument(documentId, {
         reviewStatus,
         credentialIdNumber,
@@ -73,6 +82,12 @@ const reviewDocument = (0, catchAsync_1.default)((req, res) => __awaiter(void 0,
         credentialExpirationDate,
         issuingOrganization,
         rejectionReason,
+        rejectionReasonCode,
+        requestReplacement,
+        aiSuggestedReason,
+        adminAgreedWithAi,
+        hasNoExpiration,
+        reviewedBy: (_a = req.user) === null || _a === void 0 ? void 0 : _a._id,
     });
     (0, sendResponse_1.default)(res, {
         statusCode: http_status_1.default.OK,
@@ -82,8 +97,11 @@ const reviewDocument = (0, catchAsync_1.default)((req, res) => __awaiter(void 0,
     });
 }));
 const getCredentialStatus = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     const { userId } = req.params;
-    const result = yield document_service_1.DocumentService.getCredentialStatus(userId);
+    // SCRUM-99 / SCRUM-119: pass the requester, so this view is gated to the
+    // caller's tier and withholds the file url until the packet is paid for.
+    const result = yield document_service_1.DocumentService.getCredentialStatus(userId, (_a = req.user) === null || _a === void 0 ? void 0 : _a._id);
     (0, sendResponse_1.default)(res, {
         statusCode: http_status_1.default.OK,
         success: true,
@@ -115,6 +133,20 @@ const downloadDocument = (0, catchAsync_1.default)((req, res) => __awaiter(void 
     });
 }));
 // SCRUM-67: Get bulk download package info
+// SCRUM-119: the locked/unlocked file list for the documents modal. Viewing is
+// free, so this returns metadata for every file but a url only once paid.
+const getPacketManifest = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    const { caregiverUserId } = req.params;
+    const agencyId = (_a = req.user) === null || _a === void 0 ? void 0 : _a._id;
+    const result = yield download_service_1.DownloadService.getPacketManifest(caregiverUserId, agencyId);
+    (0, sendResponse_1.default)(res, {
+        statusCode: http_status_1.default.OK,
+        success: true,
+        message: 'Packet manifest retrieved!',
+        data: result,
+    });
+}));
 const getDownloadPackage = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     const { caregiverUserId } = req.params;
@@ -186,6 +218,7 @@ exports.DocumentController = {
     removeCredential,
     downloadDocument,
     getDownloadPackage,
+    getPacketManifest,
     requestPrivateAccess,
     updatePrivateAccess,
     getAccessRequests,

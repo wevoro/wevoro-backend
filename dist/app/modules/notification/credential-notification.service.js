@@ -1,4 +1,27 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -14,6 +37,8 @@ const documents_model_1 = require("../document/documents.model");
 const notification_model_1 = require("../user/notification.model");
 const personal_info_model_1 = require("../user/personal-info.model");
 const engagement_helper_1 = require("./engagement.helper");
+// SCRUM-108: email delivery alongside the in-app notification.
+const credential_email_service_1 = require("./credential-email.service");
 /**
  * SCRUM-65: Credential Expiration Notification Cron Service
  *
@@ -26,13 +51,34 @@ const engagement_helper_1 = require("./engagement.helper");
  * Deduplication: checks if a notification with the same type + credentialDocumentId
  * already exists before firing.
  */
+/** "1 day", not "1 days". */
+const dayCount = (n) => `${n} ${n === 1 ? 'day' : 'days'}`;
 const CREDENTIAL_LABELS = {
-    certifications: 'CNA Certification',
     driver_license: "Driver's License",
     auto_insurance: 'Auto Insurance',
     cpr_test: 'CPR Test',
     tb_tests: 'TB Test',
 };
+/**
+ * The certification label depends on the caregiver's track: a PCA holds a PCA
+ * certificate, not a CNA one. This was a fixed 'CNA Certification', so every
+ * PCA was emailed about a credential they do not hold — and told to renew it.
+ * Derived at send time exactly as the profile view derives it (documents
+ * carry no role of their own).
+ */
+const roleCache = new Map();
+const certificationLabel = (caregiverId) => __awaiter(void 0, void 0, void 0, function* () {
+    let role = roleCache.get(caregiverId);
+    if (!role) {
+        const { ProfessionalInfo } = yield Promise.resolve().then(() => __importStar(require('../user/professional-info.model')));
+        const prof = yield ProfessionalInfo.findOne({ user: caregiverId })
+            .select('role')
+            .lean();
+        role = (prof === null || prof === void 0 ? void 0 : prof.role) === 'PCA' ? 'PCA' : 'CNA';
+        roleCache.set(caregiverId, role);
+    }
+    return `${role} Certification`;
+});
 /**
  * Check if a notification has already been sent for this credential + type combination
  */
@@ -60,7 +106,7 @@ const getCaregiverName = (userId) => __awaiter(void 0, void 0, void 0, function*
  * Fire a notification to a user
  */
 const fireNotification = (params) => __awaiter(void 0, void 0, void 0, function* () {
-    const { userId, message, type, credentialDocumentId, credentialName, ctaLink } = params;
+    const { userId, message, type, credentialDocumentId, credentialName, ctaLink, emailKind, daysUntilExpiration, expiresOn, } = params;
     // Deduplication check
     const alreadySent = yield isNotificationAlreadySent(userId, credentialDocumentId, type);
     if (alreadySent)
@@ -75,6 +121,18 @@ const fireNotification = (params) => __awaiter(void 0, void 0, void 0, function*
         isRead: false,
     });
     console.log(`📢 Notification fired: [${type}] to user ${userId} for ${credentialName}`);
+    // SCRUM-108: email rides the same trigger, AFTER the dedup guard — so it
+    // inherits dedup for free, and the SCRUM-102 renewal reset (which deletes the
+    // prior notifications) re-arms BOTH channels for the next lifecycle.
+    if (emailKind) {
+        yield (0, credential_email_service_1.sendCredentialEmail)({
+            userId,
+            kind: emailKind,
+            credentialName,
+            days: Math.max(0, daysUntilExpiration !== null && daysUntilExpiration !== void 0 ? daysUntilExpiration : 0),
+            expiresOn,
+        });
+    }
 });
 /**
  * Main cron job function: evaluates all verified credentials
@@ -93,18 +151,23 @@ const evaluateCredentialExpirations = () => __awaiter(void 0, void 0, void 0, fu
             const expirationDate = new Date(doc.credentialExpirationDate);
             const diffMs = expirationDate.getTime() - now.getTime();
             const daysUntilExpiration = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-            const credentialName = CREDENTIAL_LABELS[doc.documentType] || doc.title || 'Credential';
             const caregiverId = doc.user.toString();
+            const credentialName = doc.documentType === 'certifications'
+                ? yield certificationLabel(caregiverId)
+                : CREDENTIAL_LABELS[doc.documentType] || doc.title || 'Credential';
             const docId = doc._id.toString();
             // Yellow band entry: 60 days (caregiver only)
             if (daysUntilExpiration <= 60 && daysUntilExpiration > 30) {
                 yield fireNotification({
                     userId: caregiverId,
-                    message: `Your <strong>${credentialName}</strong> expires in ${daysUntilExpiration} days. Plan ahead to renew before it enters urgent status.`,
+                    message: `Your <strong>${credentialName}</strong> expires in ${dayCount(daysUntilExpiration)}. Plan ahead to renew before it enters urgent status.`,
                     type: 'credential_yellow',
                     credentialDocumentId: docId,
                     credentialName,
                     ctaLink: '/pro/profile#credentials',
+                    emailKind: 'yellow',
+                    daysUntilExpiration,
+                    expiresOn: expirationDate,
                 });
                 // No agency notification for Yellow band
             }
@@ -112,11 +175,14 @@ const evaluateCredentialExpirations = () => __awaiter(void 0, void 0, void 0, fu
             if (daysUntilExpiration <= 30 && daysUntilExpiration > 0) {
                 yield fireNotification({
                     userId: caregiverId,
-                    message: `Your <strong>${credentialName}</strong> expires in ${daysUntilExpiration} days. Please renew now to keep your profile active.`,
+                    message: `Your <strong>${credentialName}</strong> expires in ${dayCount(daysUntilExpiration)}. Please renew now to keep your profile active.`,
                     type: 'credential_red',
                     credentialDocumentId: docId,
                     credentialName,
                     ctaLink: '/pro/profile#credentials',
+                    emailKind: 'red',
+                    daysUntilExpiration,
+                    expiresOn: expirationDate,
                 });
                 // Agency notifications for Red band
                 const engagedAgencies = yield (0, engagement_helper_1.getEngagedAgencies)(caregiverId);
@@ -124,7 +190,7 @@ const evaluateCredentialExpirations = () => __awaiter(void 0, void 0, void 0, fu
                 for (const agencyId of engagedAgencies) {
                     yield fireNotification({
                         userId: agencyId,
-                        message: `<strong>${caregiverName}</strong>'s <strong>${credentialName}</strong> expires in ${daysUntilExpiration} days. You may want to confirm renewal plans before assigning further shifts.`,
+                        message: `<strong>${caregiverName}</strong>'s <strong>${credentialName}</strong> expires in ${dayCount(daysUntilExpiration)}. You may want to confirm renewal plans before assigning further shifts.`,
                         type: 'credential_red',
                         credentialDocumentId: docId,
                         credentialName,
@@ -141,6 +207,9 @@ const evaluateCredentialExpirations = () => __awaiter(void 0, void 0, void 0, fu
                     credentialDocumentId: docId,
                     credentialName,
                     ctaLink: '/pro/profile#credentials',
+                    emailKind: 'expired',
+                    daysUntilExpiration,
+                    expiresOn: expirationDate,
                 });
                 // Agency notifications for Expiration
                 const engagedAgencies = yield (0, engagement_helper_1.getEngagedAgencies)(caregiverId);
@@ -181,6 +250,14 @@ const fireRejectionNotification = (params) => __awaiter(void 0, void 0, void 0, 
         isRead: false,
     });
     console.log(`📢 Rejection notification fired for ${credentialName} to caregiver ${caregiverId}`);
+    // SCRUM-108 Scenario 4: real-time rejection email carrying the SPECIFIC admin
+    // reason (saved by the SCRUM-109 not-confirmed modal), not a generic line.
+    yield (0, credential_email_service_1.sendCredentialEmail)({
+        userId: caregiverId,
+        kind: 'rejected',
+        credentialName,
+        reason,
+    });
 });
 exports.fireRejectionNotification = fireRejectionNotification;
 /**
