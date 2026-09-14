@@ -19,6 +19,8 @@ const download_audit_model_1 = require("../document/download-audit.model");
 const personal_info_model_1 = require("../user/personal-info.model");
 const professional_info_model_1 = require("../user/professional-info.model");
 const notification_model_1 = require("../user/notification.model");
+const user_model_1 = require("../user/user.model");
+const user_1 = require("../../../enums/user");
 /**
  * SCRUM-87/88: Credentialing-mode engagement service.
  *
@@ -80,6 +82,48 @@ const recordEngagement = (caregiverId, agencyId) => __awaiter(void 0, void 0, vo
     return engagement;
 });
 /**
+ * SCRUM-122: resolve a share link to its caregiver. Links carry the caregiver's
+ * shareId; caregivers created before shareId existed were shared by _id, so fall
+ * back to that, as getUserByShareId does. Only a caregiver account counts.
+ */
+const caregiverFromShare = (shareId) => __awaiter(void 0, void 0, void 0, function* () {
+    if (!shareId)
+        return null;
+    let caregiver = yield user_model_1.User.findOne({ shareId }).select('_id role').lean();
+    if (!caregiver && mongoose_1.default.Types.ObjectId.isValid(shareId)) {
+        caregiver = yield user_model_1.User.findById(shareId).select('_id role').lean();
+    }
+    return caregiver && caregiver.role === user_1.ENUM_USER_ROLE.PRO
+        ? String(caregiver._id)
+        : null;
+});
+/**
+ * SCRUM-122: an agency came in through a caregiver's share link — record it.
+ *
+ * The engagement used to be written only when the old onboarding form was
+ * saved. The passwordless flow (SCRUM-99) signs the agency in and takes them
+ * straight to the caregiver's profile, so that form never ran: the caregiver
+ * never appeared in the agency's Offers › Submitted tab, and once the agency
+ * navigated away they had no way back without the original link.
+ *
+ * Called when an agency signs in with a share link (new or returning) and when
+ * an already signed-in agency opens one. Idempotent via recordEngagement.
+ */
+const recordShareEngagement = (shareId, agencyId) => __awaiter(void 0, void 0, void 0, function* () {
+    const caregiverId = yield caregiverFromShare(shareId);
+    if (!caregiverId)
+        return null;
+    const agency = yield user_model_1.User.findById(agencyId).select('role sourceCaregiverId');
+    if (!agency || agency.role !== user_1.ENUM_USER_ROLE.PARTNER)
+        return null;
+    // Keep the first referring caregiver on the account; later links add
+    // engagements but do not rewrite where the agency originally came from.
+    if (!agency.sourceCaregiverId) {
+        yield user_model_1.User.updateOne({ _id: agencyId }, { $set: { sourceCaregiverId: caregiverId } });
+    }
+    return recordEngagement(caregiverId, agencyId);
+});
+/**
  * SCRUM-67: fire the one-time "Credentials Downloaded" notification to the
  * caregiver. Caller (download.service) is responsible for first-download
  * detection so this fires exactly once per (caregiver, agency) pair.
@@ -103,6 +147,18 @@ const notifyCredentialsDownloaded = (caregiverId, agencyName) => __awaiter(void 
  */
 const getCaregiverEngagements = (caregiverId) => __awaiter(void 0, void 0, void 0, function* () {
     const caregiverObjId = new mongoose_1.default.Types.ObjectId(caregiverId);
+    // SCRUM-122: agencies that already signed up through this caregiver's link
+    // before the fix carry the caregiver on their account but have no engagement.
+    // Write the missing ones on read, so nobody has to sign up again.
+    const referred = yield user_model_1.User.find({
+        role: user_1.ENUM_USER_ROLE.PARTNER,
+        sourceCaregiverId: caregiverId,
+    })
+        .select('_id')
+        .lean();
+    for (const agency of referred) {
+        yield recordEngagement(caregiverId, String(agency._id)).catch(() => null);
+    }
     const engagements = yield credentialing_engagement_model_1.CredentialingEngagement.find({
         caregiver: caregiverId,
     }).lean();
@@ -153,6 +209,15 @@ const getCaregiverEngagements = (caregiverId) => __awaiter(void 0, void 0, void 
  */
 const getAgencyEngagements = (agencyId) => __awaiter(void 0, void 0, void 0, function* () {
     const agencyObjId = new mongoose_1.default.Types.ObjectId(agencyId);
+    // SCRUM-122: same healing from the agency's side — an agency that signed up
+    // through a share link before the fix has the caregiver on its account but an
+    // empty Submitted tab.
+    const account = yield user_model_1.User.findById(agencyId)
+        .select('sourceCaregiverId')
+        .lean();
+    if (account === null || account === void 0 ? void 0 : account.sourceCaregiverId) {
+        yield recordEngagement(String(account.sourceCaregiverId), agencyId).catch(() => null);
+    }
     const engagements = yield credentialing_engagement_model_1.CredentialingEngagement.find({
         agency: agencyId,
     }).lean();
@@ -206,6 +271,7 @@ const getAgencyEngagements = (agencyId) => __awaiter(void 0, void 0, void 0, fun
 });
 exports.CredentialingService = {
     recordEngagement,
+    recordShareEngagement,
     notifyCredentialsDownloaded,
     getCaregiverEngagements,
     getAgencyEngagements,
