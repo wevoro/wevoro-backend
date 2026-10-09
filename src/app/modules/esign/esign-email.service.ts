@@ -78,7 +78,7 @@ export const sendSignatureReminderEmail = async (params: {
       emailDetailRow('DOCUMENTS', `${n} ${docWord} (${escapeHtml(role)})`, 0) +
       emailDetailRow('FROM', agency, 14),
     cta: 'Review &amp; sign documents',
-    ctaHref: `${emailAppUrl()}/pro/offers`,
+    ctaHref: `${emailAppUrl()}/caregiver/offers`,
     note: `This is reminder ${reminderNumber} of your signature request. You&rsquo;ll stop receiving these once all documents are signed.`,
     footerLine: `Sent securely via SignWell on behalf of ${agency}.`,
   });
@@ -108,7 +108,7 @@ export const sendDocumentReplacedEmail = async (params: {
       emailDetailRow('DOCUMENT', escapeHtml(documentTitle), 0) +
       emailDetailRow('AGENCY', escapeHtml(agencyName), 14),
     cta: 'Review & sign new version',
-    ctaHref: `${emailAppUrl()}/pro/offers`,
+    ctaHref: `${emailAppUrl()}/caregiver/offers`,
     note: 'This is an automated alert from WeVoro.',
     footerLine: CAREGIVER_FOOTER,
   });
@@ -135,7 +135,7 @@ export const sendSigningCompleteEmail = async (params: {
       emailDetailRow('CAREGIVER', escapeHtml(caregiverName), 0) +
       emailDetailRow('SIGNED', `${count} of ${count} ${docWord}`, 14),
     cta: 'View caregiver',
-    ctaHref: `${emailAppUrl()}/partner/onboardings`,
+    ctaHref: `${emailAppUrl()}/agency/onboardings`,
     note: 'This is an automated alert from WeVoro.',
     footerLine: AGENCY_FOOTER,
   });
@@ -170,7 +170,7 @@ export const sendSignedPackageEmail = async (params: {
       emailDetailRow('SIGNED', `${count} of ${count} ${docWord}`, 14) +
       emailDetailRow('ATTACHED', escapeHtml(zip.filename), 14),
     cta: 'View caregiver',
-    ctaHref: `${emailAppUrl()}/partner/onboardings`,
+    ctaHref: `${emailAppUrl()}/agency/onboardings`,
     note: 'Each signed document carries a certificate page recording who signed it, when, and from where.',
     footerLine: AGENCY_FOOTER,
   });
@@ -215,9 +215,119 @@ export const sendOfferReceivedEmail = async (params: {
     intro: `you have a new offer waiting on WeVoro.${extra}`,
     detailRowsHtml: emailDetailRow('FROM', escapeHtml(agencyName), 0),
     cta: 'View offer',
-    ctaHref: `${emailAppUrl()}/pro/offers`,
+    ctaHref: `${emailAppUrl()}/caregiver/offers`,
     note: 'This is an automated alert from WeVoro.',
     footerLine: CAREGIVER_FOOTER,
   });
   await deliver(caregiverId, `${agencyName} sent you an offer on WeVoro`, html, 'offer-received');
+};
+
+/**
+ * SCRUM-141: the agency clicked Onboard. Replaces the offer-received email for
+ * the credentialing flow, in the new terms (Onboard / Respond).
+ */
+export const sendOnboardRequestEmail = async (params: {
+  caregiverId: string;
+  agencyName: string;
+  signCount: number;
+}): Promise<void> => {
+  const { caregiverId, agencyName, signCount } = params;
+  const docWord = signCount === 1 ? 'document' : 'documents';
+  const html = renderAlertEmail({
+    emblem: 'emblem-offer.png',
+    eyebrow: 'ONBOARDING REQUEST',
+    accent: C.green,
+    heading: `${agencyName} wants to onboard you`,
+    greetingName: await firstNameOf(caregiverId),
+    intro:
+      signCount > 0
+        ? `${escapeHtml(agencyName)} would like to onboard you on WeVoro. Respond by signing ${signCount} ${docWord} &mdash; it only takes a couple of minutes. They can download your credentials only after you respond.`
+        : `${escapeHtml(agencyName)} would like to onboard you on WeVoro. Respond to share your confirmed credentials with them. They can download your credentials only after you respond.`,
+    detailRowsHtml:
+      emailDetailRow('FROM', escapeHtml(agencyName), 0) +
+      (signCount > 0 ? emailDetailRow('TO SIGN', `${signCount} ${docWord}`, 14) : ''),
+    cta: 'Respond',
+    ctaHref: `${emailAppUrl()}/caregiver/offers?tab=received`,
+    note: 'This is an automated alert from WeVoro.',
+    footerLine: CAREGIVER_FOOTER,
+  });
+  await deliver(
+    caregiverId,
+    `${agencyName} wants to onboard you on WeVoro`,
+    html,
+    'onboard-request'
+  );
+};
+
+/**
+ * SCRUM-141: the caregiver responded (and signed, when there was anything to
+ * sign). The package is not attached: the signed documents now ship with the
+ * credential package, once the agency has paid for it.
+ */
+export const sendOnboardSubmittedEmail = async (params: {
+  agencyId: string;
+  caregiverId: string;
+  caregiverName: string;
+  caregiverRole?: string;
+  signedCount: number;
+  signedAt?: Date;
+}): Promise<void> => {
+  const { agencyId, caregiverId, caregiverName, signedCount } = params;
+  const role = params.caregiverRole || 'CNA';
+  const docWord = signedCount === 1 ? 'document' : 'documents';
+  const name = escapeHtml(caregiverName);
+  const signedOn = new Date(params.signedAt || Date.now()).toLocaleDateString('en-US', {
+    timeZone: 'America/New_York',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  // Lazy: keeps the pricing module out of the esign cold path.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { getCurrentPriceCents } = require('../pricing/pricing.service');
+  const priceCents: number | null = await getCurrentPriceCents().catch(() => null);
+  const price = priceCents === null ? 'package' : `$${(priceCents / 100).toFixed(2).replace(/\.00$/, '')}`;
+
+  // A5 (Faisal's agency flow): SIGNING COMPLETE.
+  const html = renderAlertEmail({
+    emblem: 'emblem-complete.png',
+    eyebrow: signedCount > 0 ? 'SIGNING COMPLETE' : 'RESPONSE SUBMITTED',
+    accent: C.green,
+    heading:
+      signedCount > 0
+        ? `${caregiverName} signed your documents`
+        : `${caregiverName} responded to your onboarding`,
+    greetingName: await firstNameOf(agencyId),
+    intro:
+      // SCRUM-188: the same "all 1 document" problem the in-app notice had.
+      signedCount === 1
+        ? `${name} has signed the document you sent. Their credential package is now ready &mdash; download it from their profile on Wevoro.`
+        : signedCount > 1
+        ? `${name} has signed all ${signedCount} ${docWord} you sent. Their credential package is now ready &mdash; download it from their profile on Wevoro.`
+        : `${name} responded to your onboarding. Their credential package is now ready &mdash; download it from their profile on Wevoro.`,
+    detailRowsHtml:
+      (signedCount > 0
+        ? emailDetailRow('DOCUMENTS', `${signedCount} ${docWord} &middot; signed ${escapeHtml(signedOn)}`, 0)
+        : '') +
+      emailDetailRow(
+        'CAREGIVER',
+        `${name} &middot; ${escapeHtml(role)}`,
+        signedCount > 0 ? 14 : 0
+      ),
+    cta: 'Download credential package',
+    ctaHref: `${emailAppUrl()}/agency/caregivers/${caregiverId}`,
+    note:
+      priceCents === null
+        ? 'The package fee is charged when you download. Re-downloads are free.'
+        : `The ${price} package fee is charged when you download. Re-downloads are free.`,
+    footerLine: AGENCY_FOOTER,
+  });
+  await deliver(
+    agencyId,
+    signedCount > 0
+      ? `${caregiverName} signed your documents`
+      : `${caregiverName} responded to your onboarding`,
+    html,
+    'onboard-submitted'
+  );
 };

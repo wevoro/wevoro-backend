@@ -24,7 +24,8 @@ const uploadOfferDocuments: RequestHandler = catchAsync(
   async (req: Request, res: Response) => {
     const result = await OfferService.uploadOfferDocuments(
       req.files,
-      req.params.id
+      req.params.id,
+      req.user as Partial<IUser>
     );
 
     sendResponse<IUser>(res, {
@@ -67,7 +68,10 @@ const updateOfferNotes: RequestHandler = catchAsync(
 
 const deleteOffer: RequestHandler = catchAsync(
   async (req: Request, res: Response) => {
-    const result = await OfferService.deleteOffer(req.params.id);
+    const result = await OfferService.deleteOffer(
+      req.params.id,
+      req.user as Partial<IUser>
+    );
 
     sendResponse<IUser>(res, {
       statusCode: httpStatus.OK,
@@ -140,7 +144,42 @@ const proRespondToOffer: RequestHandler = catchAsync(
   }
 );
 
+// SCRUM-141: the agency's Onboard button, and the state its profile bar shows.
+const onboardCaregiver: RequestHandler = catchAsync(
+  async (req: Request, res: Response) => {
+    const { onboardCaregiver } = await import('./onboarding.service');
+    const result = await onboardCaregiver(
+      String((req.user as any)?._id),
+      req.params.caregiverId
+    );
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: 'Caregiver onboarded',
+      data: result,
+    });
+  }
+);
+
+const getOnboardStatus: RequestHandler = catchAsync(
+  async (req: Request, res: Response) => {
+    const { getOnboardSummary } = await import('./onboarding.service');
+    const result = await getOnboardSummary(
+      String((req.user as any)?._id),
+      req.params.caregiverId
+    );
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: 'Onboard status',
+      data: result,
+    });
+  }
+);
+
 export const OfferController = {
+  onboardCaregiver,
+  getOnboardStatus,
   createOrUpdateOffer,
   uploadOfferDocuments,
   getOffers,

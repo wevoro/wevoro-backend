@@ -65,6 +65,38 @@ const packetTransactionSchema = new mongoose_1.Schema({
     // after a successful charge is distinguishable from a fresh purchase.
     deliveredAt: { type: Date },
     receiptEmailSentAt: { type: Date },
+    // --- SCRUM-142/143: WeVoro's own receipt, stored with the transaction so
+    // an audit never has to go through Stripe's dashboard. ---
+    receiptNumber: { type: String, index: true },
+    // The Stripe id printed on the receipt: the PaymentIntent (pi_…) when
+    // Stripe has one, otherwise the Checkout Session (cs_…).
+    stripeTransactionId: { type: String },
+    receiptSentTo: { type: String },
+    receiptHtml: { type: String },
+    receiptError: { type: String },
+    /*
+     * SCRUM-194: one payment buys the packet AS IT WAS at that moment, for a
+     * limited time.
+     *
+     * The receipt used to promise "re-downloads are always free", and the ZIP
+     * was rebuilt from the caregiver's CURRENT credentials on every request. So
+     * an agency paid once in January and still pulled a renewed CPR and a new
+     * TB test in December, and a packet opened months later still showed as
+     * confirmed when the credentials behind it had lapsed — with WeVoro's name
+     * on it.
+     *
+     * `accessEndsAt` is 30 days from payment. Inside that window the packet is
+     * live: replacements the caregiver makes are included at no extra charge,
+     * and SCRUM-210 tells the agency about them. After it, the packet closes.
+     *
+     * `frozenDocuments` and `frozenAt` belonged to an earlier draft that froze
+     * the file list at payment. The 9/30 dev sync dropped that model. Nothing
+     * writes or reads them now; they stay on the schema only so rows written
+     * during that window still load.
+     */
+    frozenDocuments: { type: [mongoose_1.Schema.Types.ObjectId], default: undefined },
+    frozenAt: { type: Date },
+    accessEndsAt: { type: Date },
 }, { timestamps: true });
 // One entitlement per agency/caregiver pair. A partial index would be ideal to
 // scope this to paid rows only, but Mongo cannot express "unique among paid"

@@ -13,6 +13,9 @@ const router = express_1.default.Router();
 const storage = multer_1.default.diskStorage({});
 const upload = (0, multer_1.default)({ storage });
 router.post('/', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.ADMIN), offer_controller_1.OfferController.createOrUpdateOffer);
+// SCRUM-141: Onboard → Respond → Submitted
+router.post('/onboard/:caregiverId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), offer_controller_1.OfferController.onboardCaregiver);
+router.get('/onboard-status/:caregiverId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), offer_controller_1.OfferController.getOnboardStatus);
 router.post('/upload/:id', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.ADMIN), upload.array(`documents`), offer_controller_1.OfferController.uploadOfferDocuments);
 router.get('/', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.ADMIN), offer_controller_1.OfferController.getOffers);
 router.delete('/:id', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.ADMIN), offer_controller_1.OfferController.deleteOffer);

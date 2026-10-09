@@ -116,3 +116,19 @@ export const myTransactions = catchAsync(async (req: Request, res: Response) => 
     data: result,
   });
 });
+
+/** SCRUM-142/143: the stored WeVoro receipt, for the paying agency or an admin. */
+export const receipt = catchAsync(async (req: Request, res: Response) => {
+  const { getReceipt } = await import('./receipt.service');
+  const result = await getReceipt({
+    transactionId: req.params.transactionId,
+    userId: currentUserId(req),
+    role: String((req.user as any)?.role || ''),
+  });
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Receipt retrieved successfully',
+    data: result,
+  });
+});

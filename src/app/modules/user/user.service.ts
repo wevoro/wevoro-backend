@@ -22,10 +22,13 @@ import { uploadFile } from '../../../helpers/bunny-upload';
 import { extractText, extractImages, getDocumentProxy } from 'unpdf';
 import sharp from 'sharp';
 import { Offer } from '../offer/offer.model';
+import { CredentialingEngagement } from '../credentialing/credentialing-engagement.model';
 import { PartnerVerification } from '../partner-verification/partner-verification.model';
 import { CredentialingService } from '../credentialing/credentialing.service';
 import { GRANTABLE_PERMISSIONS } from './user.constant';
 import crypto from 'crypto';
+import { getShareGateSummary } from '../notification/share-unlock.service';
+import { currentSite } from '../../middlewares/site-context';
 cloudinary.v2.config({
   cloud_name: config.cloudinary.cloud_name,
   api_key: config.cloudinary.api_key,
@@ -144,6 +147,13 @@ const deleteAccount = async (user: Partial<IUser>) => {
         ProfessionalInfo.deleteMany({ user: userId }, { session }),
         Pro.deleteMany({ pro: userId }, { session }),
         Notification.deleteMany({ user: userId }),
+        // SCRUM-162: the agency side is built from offers and engagements.
+        // These were left behind (the agency branch below already clears its
+        // offers), so a deleted caregiver lived on as a nameless "Caregiver"
+        // card on every agency's Onboarding tab, still offering a download.
+        // Payments and the download audit trail are records and stay.
+        Offer.deleteMany({ pro: userId }, { session }),
+        CredentialingEngagement.deleteMany({ caregiver: userId }, { session }),
       ]);
     } else if (userRole === ENUM_USER_ROLE.PARTNER) {
       await Promise.all([
@@ -209,9 +219,52 @@ const updateUser = async (
     payload.previousStatus = null;
   }
 
+  /**
+   * SCRUM-151: the admin's background-check decision and the caregiver's
+   * uploaded GCHEXS Confirmation are two halves of one fact. They used to be
+   * stored apart, so the caregiver's page could show the document as reviewed
+   * while the admin panel still read "Pending review", and nothing the admin
+   * could click brought them together. One decision now writes both.
+   */
+  if (payload.backgroundCheckStatus) {
+    payload.backgroundCheckUpdatedAt = new Date();
+  }
+
   const result = await User.findByIdAndUpdate(id, payload, {
     new: true,
   });
+
+  if (payload.backgroundCheckStatus) {
+    try {
+      const { Documents } = await import('../document/documents.model');
+      const reviewStatus =
+        payload.backgroundCheckStatus === 'verified'
+          ? 'approved'
+          : payload.backgroundCheckStatus === 'failed'
+            ? 'rejected'
+            : 'pending';
+      const set: Record<string, any> = { reviewStatus };
+      const unset: Record<string, any> = {};
+      if (reviewStatus === 'approved') {
+        set.reviewedAt = new Date();
+        unset.rejectionReason = '';
+      } else if (reviewStatus === 'rejected') {
+        set.rejectionReason =
+          'The background check could not be confirmed. Please upload a current GCHEXS confirmation.';
+        unset.reviewedAt = '';
+      } else {
+        unset.reviewedAt = '';
+        unset.rejectionReason = '';
+      }
+      const update: Record<string, any> = { $set: set };
+      if (Object.keys(unset).length) update.$unset = unset;
+      await Documents.updateMany({ user: id, documentType: 'gchexs' }, update);
+    } catch (err) {
+      // The admin's decision is already saved; syncing the document is
+      // best-effort so a failure here never looks like a failed decision.
+      console.error(`[background-check] could not sync the GCHEXS document for ${id}:`, err);
+    }
+  }
 
   if (payload.alertType) {
     const { note, alertType } = payload;
@@ -438,6 +491,31 @@ const updateOrCreateUserProfessionalInformation = async (
     user: id,
   });
 
+  /*
+   * SCRUM-207: a caregiver who changes Role (CNA <-> PCA) keeps nothing from
+   * the old role's certificate.
+   *
+   * Only the label used to change. The old file stayed attached underneath it,
+   * so a row headed "PCA Certificate" held a CNA certificate — and because the
+   * row was still there, nothing ever asked the caregiver for what the new role
+   * actually requires. A CNA certificate is one upload; a PCA's is two
+   * (written exam / GACCP, plus the RN/LPN practical sign-off, SCRUM-165). The
+   * only way out was to delete the account and start again.
+   *
+   * Both certificate parts go, and only those. CPR, TB, the driver's licence
+   * and auto insurance do not depend on the role, so they stay confirmed.
+   * Clearing the rows is what produces the prompt: the certificate reads Not
+   * Uploaded again, and the credential section and the Completing Profile
+   * modal both ask for the new role's documents on their own.
+   *
+   * Best-effort, after the role is written: a caregiver whose role change
+   * saved must not be told it failed because the cleanup threw.
+   */
+  const roleBefore = (isProfessionalInformationExist as any)?.role;
+  const roleAfter = payload?.role;
+  const roleChanged =
+    !!roleAfter && !!roleBefore && String(roleAfter) !== String(roleBefore);
+
   let result: any;
 
   if (!isProfessionalInformationExist) {
@@ -449,6 +527,33 @@ const updateOrCreateUserProfessionalInformation = async (
     { $set: payload },
     { new: true }
   );
+
+  if (roleChanged) {
+    try {
+      const { Documents } = await import('../document/documents.model');
+      const { logCredentialAction } = await import(
+        '../document/credential-audit.model'
+      );
+      const stale = await Documents.find({
+        user: id,
+        documentType: 'certifications',
+      });
+      for (const doc of stale) {
+        await logCredentialAction({
+          caregiverId: String(id),
+          actorId: String(id),
+          action: 'remove',
+          document: doc,
+        });
+      }
+      await Documents.deleteMany({ user: id, documentType: 'certifications' });
+      console.log(
+        `[SCRUM-207] role ${roleBefore} -> ${roleAfter} for ${id}: cleared ${stale.length} certificate row(s)`
+      );
+    } catch (err: any) {
+      console.error('[SCRUM-207] could not clear the old certificate:', err?.message);
+    }
+  }
 
   return result;
 };
@@ -476,7 +581,7 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
 
   const personalInfo = await PersonalInfo.findOne({ user: _id });
 
-  const sharableLink = `${config.frontend_url.prod}/pro/${_id}`;
+  const sharableLink = `${config.frontend_url.prod}/caregiver/${_id}`;
 
   let completionPercentage = 0;
   let offersSentData = 0;
@@ -485,7 +590,11 @@ const getUserProfile = async (user: Partial<IUser>): Promise<IUser | null> => {
   if (role === ENUM_USER_ROLE.PRO) {
     const professionalInfo = await ProfessionalInfo.findOne({ user: _id });
     // SCRUM-93: score every required credential, not just driver_license/tb_tests.
-    const documents = await Documents.find({ user: _id });
+    // SCRUM-176: oldest first, for the reason the document queries carry it —
+    // calculateProCompletion keeps the LAST row of each type, so an unsorted
+    // query left the percentage to whatever order the database returned.
+    // createdAt ascending is that effective order today; no score moves.
+    const documents = await Documents.find({ user: _id }).sort({ createdAt: 1 });
 
     completionPercentage = calculateProCompletion(
       personalInfo,
@@ -612,7 +721,7 @@ const getUserById = async (
   if (!id) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'User id is required');
   }
-  const sharableLink = `${config.frontend_url.prod}/pro/${id}`;
+  const sharableLink = `${config.frontend_url.prod}/caregiver/${id}`;
 
   const result = await User.aggregate([
     {
@@ -668,6 +777,9 @@ const getUserById = async (
         sharableLink: sharableLink,
         shareId: '$shareId',
         backgroundCheckStatus: 1,
+        // SCRUM-151: the admin panel prints the decision date; without this it
+        // fell back to the account's last-updated time.
+        backgroundCheckUpdatedAt: 1,
         // offersSent: offersSentData,
         // jobConversionPercentage: jobConversionPData,
       },
@@ -675,6 +787,22 @@ const getUserById = async (
   ]);
 
   const user = result.length > 0 ? result[0] : null;
+
+  // SCRUM-133: a caregiver's profile is for signed-in WeVoro accounts only.
+  // The Settings "Share Link with Employers" box handed out /caregiver/<id> at
+  // every credential state, and each copy already sent still opens for a
+  // signed-out visitor (middleware guards /caregiver/profile, /settings etc.,
+  // not /caregiver/<id>, nor /agency/caregivers/<hex id>), and those pages read
+  // this endpoint: full personal info — phone, address, email, date of birth.
+  // So the locked card's promise ("Agencies can see your profile only after
+  // all 5 credentials are verified") was false for every link copied from
+  // Settings. The one public view of a caregiver is /p/<shareId>
+  // (getUserByShareId), which opens only at 5 of 5. An anonymous caller gets
+  // what an unknown id gets — nothing — and both pages send the visitor on
+  // (home, or the agency login).
+  if (user && user.role === ENUM_USER_ROLE.PRO && !requesterId) {
+    return null;
+  }
 
   // SCRUM-99: gate the sensitive GCHEXS background check on the profile view.
   // Only the owner, an admin/super_admin, or a CONFIRMED (approved) agency may
@@ -708,6 +836,19 @@ const getUserById = async (
   return user;
 };
 
+/**
+ * Public share preview: GET /user/share/:shareId, behind /p/<shareId>.
+ *
+ * SCRUM-133 (final, 9/17): "no partial-verification view is ever exposed
+ * externally". The caregiver's share card was gated, but this lookup was not,
+ * so the link opened for a caregiver with 0 of 5 verified and the locked
+ * card's promise ("Agencies can see your profile only after all 5 credentials
+ * are verified") was false. The profile now leaves this server only while all
+ * 5 required credentials are Confirmed — the same rule as the caregiver's card
+ * (notification/share-unlock.service). Otherwise the answer is just
+ * { shareable: false }: no name, photo, city or id, and the page shows a calm
+ * "not ready" screen instead of the agency sign-up.
+ */
 const getUserByShareId = async (shareId: string): Promise<any> => {
   if (!shareId) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Share ID is required');
@@ -715,22 +856,38 @@ const getUserByShareId = async (shareId: string): Promise<any> => {
 
   // Try shareId first, then fall back to _id for existing users without a shareId
   let user = await User.findOne({ shareId });
-  if (!user) {
-    // Check if it's a valid MongoDB ObjectId and try _id lookup
-    const mongoose = require('mongoose');
-    if (mongoose.Types.ObjectId.isValid(shareId)) {
-      user = await User.findById(shareId);
-    }
+  if (!user && mongoose.Types.ObjectId.isValid(shareId)) {
+    user = await User.findById(shareId);
   }
-  if (!user) {
+  if (!user || user.role !== ENUM_USER_ROLE.PRO) {
     throw new ApiError(httpStatus.NOT_FOUND, 'Profile not found');
   }
+
+  const gate = await getShareGateSummary(user._id);
+  if (!gate.unlocked) {
+    return { shareable: false };
+  }
+
   const personalInfo = await PersonalInfo.findOne({ user: user._id });
   const profInfo = await ProfessionalInfo.findOne({ user: user._id });
-  const documents = await Documents.find({ user: user._id });
-  const verifiedCount = documents.filter((d: any) => d.reviewStatus === 'approved').length;
+  // SCRUM-133 (Faisal, public preview): the five REQUIRED credentials only,
+  // and only while still valid; the list feeds the "Confirmed Credentials"
+  // tooltip.
+  const credentialLabel: Record<string, string> = {
+    certifications: profInfo?.role === 'PCA' ? 'PCA Certificate' : 'CNA Certificate',
+    driver_license: "Driver's License",
+    auto_insurance: 'Auto Insurance',
+    cpr_test: 'CPR & First Aid',
+    tb_tests: 'TB Test',
+  };
+  const credentialItems = gate.items.map(({ key, verified }) => ({
+    key,
+    label: credentialLabel[key],
+    verified,
+  }));
 
   return {
+    shareable: true,
     _id: user._id,
     role: user.role,
     status: user.status,
@@ -748,14 +905,39 @@ const getUserByShareId = async (shareId: string): Promise<any> => {
       role: profInfo.role,
     } : null,
     credentialsSummary: {
-      verified: verifiedCount,
-      total: 5,
+      verified: gate.verified,
+      total: gate.total,
+      items: credentialItems,
     },
   };
 };
 
+/**
+ * QA and production share one database, so every account created on
+ * qa.wevoro.com lands in the live admin alongside the real ones. By 9 October
+ * that was 133 of 203 users — 57 of 84 agencies and 75 of 117 caregivers were
+ * @wevoro-test.com. The real agencies were buried under pages of test rows,
+ * which read as "the old agencies are gone", and the dashboard counts the
+ * client reads were inflated by the same test data.
+ *
+ * Nothing is deleted. The test accounts are simply not listed when the request
+ * came from the live site. QA still sees every one of them, or there would be
+ * nothing left to test with.
+ *
+ * The real fix is a separate QA database; this keeps the live admin honest
+ * until that happens.
+ */
+const TEST_ACCOUNT_EMAIL = /@wevoro-test\.com$/i;
+
+const hideTestAccounts = (): boolean => currentSite() === 'https://wevoro.com';
+
+/** An aggregation stage that drops the QA accounts, on the live site only. */
+const withoutTestAccounts = (): any[] =>
+  hideTestAccounts() ? [{ $match: { email: { $not: TEST_ACCOUNT_EMAIL } } }] : [];
+
 const getUsers = async (): Promise<IUser[]> => {
   const result = await User.aggregate([
+    ...withoutTestAccounts(),
     {
       $lookup: {
         from: 'personalinformations',

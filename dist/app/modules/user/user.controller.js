@@ -219,10 +219,15 @@ const autoFillAI = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, voi
 }));
 const getUserByShareId = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const result = yield user_service_1.UserService.getUserByShareId(req.params.shareId);
+    // SCRUM-133: a real link to a caregiver whose credentials are not all
+    // verified yet is not an error — the page shows "not ready to share" —
+    // so it stays a 200 with { shareable: false } and no profile in it.
     (0, sendResponse_1.default)(res, {
         statusCode: http_status_1.default.OK,
         success: true,
-        message: 'User profile retrieved successfully!',
+        message: (result === null || result === void 0 ? void 0 : result.shareable) === false
+            ? 'This profile is not ready to share yet'
+            : 'User profile retrieved successfully!',
         data: result,
     });
 }));

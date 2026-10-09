@@ -28,15 +28,41 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EsignRoutes = void 0;
 const express_1 = __importDefault(require("express"));
+const http_status_1 = __importDefault(require("http-status"));
 const multer_1 = __importDefault(require("multer"));
 const auth_1 = __importDefault(require("../../middlewares/auth"));
+const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
 const user_1 = require("../../../enums/user");
 const EsignController = __importStar(require("./esign.controller"));
 const router = express_1.default.Router();
 const upload = (0, multer_1.default)({ storage: multer_1.default.diskStorage({}) });
+/**
+ * SCRUM-204: say what is actually wrong when too many files arrive at once.
+ *
+ * `upload.array('files', 10)` makes multer abort on the ELEVENTH part with
+ * LIMIT_UNEXPECTED_FILE, which reached the agency as a 500 "Unexpected field" —
+ * a message about nothing they did, on a screen that was only trying to say
+ * "that is more than ten". Worse, it fires before addDocuments runs, so the
+ * service's own, friendly cap message could never be the one shown.
+ *
+ * The cap is now owned in one place: multer takes the batch (with a generous
+ * hard stop so a runaway request is still refused), and addDocuments decides,
+ * counting what the agency already has. Anything multer does refuse is turned
+ * into a plain 400.
+ */
+const uploadDocuments = (req, res, next) => {
+    upload.array('files', 50)(req, res, (err) => {
+        if (!err)
+            return next();
+        const tooMany = (err === null || err === void 0 ? void 0 : err.code) === 'LIMIT_UNEXPECTED_FILE' || (err === null || err === void 0 ? void 0 : err.code) === 'LIMIT_FILE_COUNT';
+        next(new ApiError_1.default(http_status_1.default.BAD_REQUEST, tooMany
+            ? 'That is more documents than one upload can carry. Send them in smaller batches.'
+            : 'That upload could not be read. Please try again.'));
+    });
+};
 // --- SCRUM-117: agency signing library ---
 router.get('/documents', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), EsignController.getLibrary);
-router.post('/documents', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), upload.array('files', 10), EsignController.addDocuments);
+router.post('/documents', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), uploadDocuments, EsignController.addDocuments);
 router.get('/documents/:id/pending-copies', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), EsignController.pendingCopies);
 router.patch('/documents/:id/replace', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), upload.single('file'), EsignController.replaceDocument);
 router.delete('/documents/:id', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), EsignController.removeDocument);

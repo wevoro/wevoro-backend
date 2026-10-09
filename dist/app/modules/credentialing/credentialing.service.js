@@ -1,4 +1,27 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -21,6 +44,7 @@ const professional_info_model_1 = require("../user/professional-info.model");
 const notification_model_1 = require("../user/notification.model");
 const user_model_1 = require("../user/user.model");
 const user_1 = require("../../../enums/user");
+const share_unlock_service_1 = require("../notification/share-unlock.service");
 /**
  * SCRUM-87/88: Credentialing-mode engagement service.
  *
@@ -76,7 +100,7 @@ const recordEngagement = (caregiverId, agencyId) => __awaiter(void 0, void 0, vo
         user: caregiverId,
         message: `<strong>${agencyName}</strong> onboarded to WeVoro via your share link.`,
         type: 'agency_onboarded',
-        ctaLink: '/pro/offers?tab=submitted',
+        ctaLink: '/caregiver/offers?tab=submitted',
         isRead: false,
     });
     return engagement;
@@ -84,7 +108,9 @@ const recordEngagement = (caregiverId, agencyId) => __awaiter(void 0, void 0, vo
 /**
  * SCRUM-122: resolve a share link to its caregiver. Links carry the caregiver's
  * shareId; caregivers created before shareId existed were shared by _id, so fall
- * back to that, as getUserByShareId does. Only a caregiver account counts.
+ * back to that, as getUserByShareId does. Only a caregiver account counts — and
+ * SCRUM-133: only while the link is unlocked (all 5 required credentials
+ * Confirmed), the same rule GET /user/share/:shareId applies.
  */
 const caregiverFromShare = (shareId) => __awaiter(void 0, void 0, void 0, function* () {
     if (!shareId)
@@ -93,9 +119,10 @@ const caregiverFromShare = (shareId) => __awaiter(void 0, void 0, void 0, functi
     if (!caregiver && mongoose_1.default.Types.ObjectId.isValid(shareId)) {
         caregiver = yield user_model_1.User.findById(shareId).select('_id role').lean();
     }
-    return caregiver && caregiver.role === user_1.ENUM_USER_ROLE.PRO
-        ? String(caregiver._id)
-        : null;
+    if (!caregiver || caregiver.role !== user_1.ENUM_USER_ROLE.PRO)
+        return null;
+    const gate = yield (0, share_unlock_service_1.getShareGateSummary)(caregiver._id);
+    return gate.unlocked ? String(caregiver._id) : null;
 });
 /**
  * SCRUM-122: an agency came in through a caregiver's share link — record it.
@@ -133,7 +160,7 @@ const notifyCredentialsDownloaded = (caregiverId, agencyName) => __awaiter(void 
         user: caregiverId,
         message: `<strong>${agencyName || 'An agency'}</strong> downloaded your credentials.`,
         type: 'credentials_downloaded',
-        ctaLink: '/pro/offers?tab=received',
+        ctaLink: '/caregiver/offers?tab=received',
         isRead: false,
     });
 });
@@ -208,6 +235,7 @@ const getCaregiverEngagements = (caregiverId) => __awaiter(void 0, void 0, void 
  * (agency, caregiver).
  */
 const getAgencyEngagements = (agencyId) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b, _c, _d;
     const agencyObjId = new mongoose_1.default.Types.ObjectId(agencyId);
     // SCRUM-122: same healing from the agency's side — an agency that signed up
     // through a share link before the fix has the caregiver on its account but an
@@ -233,7 +261,61 @@ const getAgencyEngagements = (agencyId) => __awaiter(void 0, void 0, void 0, fun
         if (d._id)
             downloadedMap.set(d._id.toString(), d.latest);
     });
-    const caregiverIds = Array.from(new Set([...onboardedMap.keys(), ...downloadedMap.keys()]));
+    // SCRUM-141: caregivers the agency onboarded with the Onboard button belong
+    // here too, whether or not they arrived through a share link — and every
+    // entry carries its onboard state, so the tab can show "waiting on
+    // signature" instead of a download the server would refuse.
+    const { getOnboardStatuses } = yield Promise.resolve().then(() => __importStar(require('../offer/onboarding.service')));
+    const onboardAll = yield getOnboardStatuses(agencyId);
+    onboardAll.forEach((st, caregiverId) => {
+        if (!onboardedMap.has(caregiverId) && st.onboardedAt) {
+            onboardedMap.set(caregiverId, st.onboardedAt);
+        }
+    });
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { PacketTransaction } = require('../pricing/pricing.model');
+    const paidRows = yield PacketTransaction.find({
+        agency: agencyId,
+        status: 'paid',
+    })
+        .select('caregiver priceChargedCents paidAt')
+        .lean();
+    const paidSet = new Set(paidRows.map((r) => String(r.caregiver)));
+    // SCRUM-141: the onboard state now counts Onboard offers only, so a packet
+    // bought through a scheduling-era offer reads 'none' and no longer brings
+    // its caregiver into the list by itself. A paid packet is still the agency's
+    // to re-download — the entitlement wins — so every paid caregiver is listed
+    // (under Completed, "Download again") whatever the onboard state says.
+    const candidateIds = Array.from(new Set([
+        ...onboardedMap.keys(),
+        ...downloadedMap.keys(),
+        ...paidSet,
+    ]));
+    // SCRUM-162: only caregivers whose account still exists. Offers, paid
+    // packets and download audits outlive a deleted account (the audit on
+    // purpose), and this list used to be built from them alone — so a caregiver
+    // who deleted their account stayed on the tab as a "Caregiver" placeholder
+    // with a Download button that led to the agency's own profile.
+    const liveUsers = yield user_model_1.User.find({
+        _id: { $in: candidateIds },
+        role: user_1.ENUM_USER_ROLE.PRO,
+    })
+        .select('_id')
+        .lean();
+    const live = new Set(liveUsers.map((u) => String(u._id)));
+    const caregiverIds = candidateIds.filter((id) => live.has(id));
+    // SCRUM-141 (B3): the list's download button carries the price, as on the
+    // profile. A paid packet keeps the price it was bought at.
+    const paidPrice = new Map();
+    const paidAtMap = new Map();
+    paidRows.forEach((r) => {
+        paidPrice.set(String(r.caregiver), r.priceChargedCents);
+        if (r.paidAt)
+            paidAtMap.set(String(r.caregiver), r.paidAt);
+    });
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { getCurrentPriceCents } = require('../pricing/pricing.service');
+    const currentPriceCents = yield getCurrentPriceCents().catch(() => null);
     const [infos, profInfos] = yield Promise.all([
         personal_info_model_1.PersonalInfo.find({ user: { $in: caregiverIds } }).lean(),
         professional_info_model_1.ProfessionalInfo.find({ user: { $in: caregiverIds } })
@@ -247,6 +329,19 @@ const getAgencyEngagements = (agencyId) => __awaiter(void 0, void 0, void 0, fun
         if (p.role)
             roleMap.set(p.user.toString(), p.role);
     });
+    // A8a: before the caregiver responds there is no packet yet, so the row
+    // lists what will be sent — the agency's active documents for that role.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { SigningDocument } = require('../esign/esign.model');
+    const activeDocs = yield SigningDocument.find({
+        agency: agencyId,
+        status: 'active',
+    })
+        .select('title role')
+        .lean();
+    const docsForRole = (role) => activeDocs
+        .filter((d) => d.role === (role || 'CNA'))
+        .map((d) => ({ title: d.title, signed: false }));
     const received = [];
     const submitted = [];
     for (const caregiverId of caregiverIds) {
@@ -259,7 +354,15 @@ const getAgencyEngagements = (agencyId) => __awaiter(void 0, void 0, void 0, fun
             role: roleMap.get(caregiverId) || null,
             onboardedAt: onboardedMap.get(caregiverId) || null,
             downloadedAt,
+            onboard: (_a = onboardAll.get(caregiverId)) !== null && _a !== void 0 ? _a : { state: 'none' },
+            paid: paidSet.has(caregiverId),
+            paidAt: (_b = paidAtMap.get(caregiverId)) !== null && _b !== void 0 ? _b : null,
+            priceCents: (_c = paidPrice.get(caregiverId)) !== null && _c !== void 0 ? _c : currentPriceCents,
         };
+        const ob = entry.onboard;
+        if (ob.state === 'awaiting' && !((_d = ob.documents) !== null && _d !== void 0 ? _d : []).length) {
+            entry.onboard = Object.assign(Object.assign({}, ob), { documents: docsForRole(entry.role) });
+        }
         if (downloadedAt)
             received.push(entry);
         else

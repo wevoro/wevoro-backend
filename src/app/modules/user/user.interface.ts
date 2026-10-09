@@ -24,6 +24,7 @@ export type IUser = {
   otpExpiry: Date;
   lastLoginAt: Date;
   backgroundCheckStatus: string;
+  backgroundCheckUpdatedAt?: Date;
   shareId: string;
   sourceCaregiverId: import('mongoose').Types.ObjectId | string;
   canResetPassword: boolean;

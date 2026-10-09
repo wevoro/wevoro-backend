@@ -28,10 +28,16 @@ function calculateProCompletion(personalInfo, professionalInfo, documents = []) 
         score += 25;
     if (professionalInfo && Object.keys(professionalInfo).length > 0)
         score += 25;
+    // SCRUM-165: the RN/LPN practical sign-off is a second 'certifications' row.
+    // Mapped by type alone it could stand in for the certificate, so a PCA who
+    // uploaded only the sign-off scored the certificate as uploaded and could
+    // reach 100% with no written exam on file. It contributes nothing here: the
+    // primary row (written exam or legacy certificate) alone scores the 10%.
     const docsByType = {};
     (documents !== null && documents !== void 0 ? documents : []).forEach((doc) => {
-        if (doc === null || doc === void 0 ? void 0 : doc.documentType)
+        if ((doc === null || doc === void 0 ? void 0 : doc.documentType) && (0, credentials_1.isPrimaryCredentialRow)(doc)) {
             docsByType[doc.documentType] = doc;
+        }
     });
     // 50% split evenly across the required credentials, half for uploading and
     // half for passing admin review — preserving the original upload/approve split.

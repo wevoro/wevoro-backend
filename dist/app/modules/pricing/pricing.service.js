@@ -127,10 +127,19 @@ const getTransactions = (params) => __awaiter(void 0, void 0, void 0, function* 
     if (params.status && ['pending', 'paid', 'failed'].includes(params.status)) {
         query.status = params.status;
     }
-    const rows = yield pricing_model_1.PacketTransaction.find(query)
-        .sort({ transactionDate: -1 })
-        .lean();
+    const rows = yield pricing_model_1.PacketTransaction.find(query).select('-receiptHtml').lean();
+    // SCRUM-143: a transaction's date on the ledger is when the money moved, not
+    // when a checkout was first opened. transactionDate is stamped once, when the
+    // row is created, and an abandoned checkout is deliberately reused rather than
+    // stacked — so a packet started on 11 Sep and paid on 16 Sep kept 11 Sep,
+    // sorted five days deep, and fell off page 1. The agency paid, opened the
+    // ledger, and could not find the payment. paidAt is written by markPaid for
+    // every successful charge, so it is used wherever it exists; unpaid rows keep
+    // the date the attempt started. Computed on read, so existing rows are
+    // corrected without a migration and the stored start date is left intact.
+    const effectiveDate = (t) => t.status === 'paid' && t.paidAt ? t.paidAt : t.transactionDate;
     const withNames = yield Promise.all(rows.map((t) => __awaiter(void 0, void 0, void 0, function* () {
+        var _a, _b, _c, _d;
         return ({
             _id: t._id,
             agencyName: yield displayName(String(t.agency)),
@@ -138,7 +147,16 @@ const getTransactions = (params) => __awaiter(void 0, void 0, void 0, function* 
             priceChargedCents: t.priceChargedCents,
             currency: t.currency,
             status: t.status,
-            transactionDate: t.transactionDate,
+            // What the table shows and sorts by.
+            transactionDate: effectiveDate(t),
+            // Kept alongside so the difference is inspectable, not lost.
+            startedAt: t.transactionDate,
+            paidAt: (_a = t.paidAt) !== null && _a !== void 0 ? _a : null,
+            // SCRUM-143: the stored receipt, so the ledger links straight to it.
+            receiptNumber: (_b = t.receiptNumber) !== null && _b !== void 0 ? _b : null,
+            receiptEmailSentAt: (_c = t.receiptEmailSentAt) !== null && _c !== void 0 ? _c : null,
+            receiptSentTo: (_d = t.receiptSentTo) !== null && _d !== void 0 ? _d : null,
+            stripeTransactionId: t.stripeTransactionId || t.stripePaymentIntentId || null,
         });
     })));
     // Search is applied after name resolution because the searchable fields are
@@ -159,8 +177,11 @@ const getTransactions = (params) => __awaiter(void 0, void 0, void 0, function* 
     else if (params.sort === 'amount') {
         sorted.sort((a, b) => b.priceChargedCents - a.priceChargedCents);
     }
-    // default 'newest' is already applied by the .sort({ transactionDate: -1 })
-    // on the query above.
+    else {
+        // Default 'newest', on the effective date. The database sort this used to
+        // lean on ordered by the stored start date, which is the bug above.
+        sorted.sort((a, b) => +new Date(b.transactionDate) - +new Date(a.transactionDate));
+    }
     const total = sorted.length;
     const start = (page - 1) * limit;
     return {

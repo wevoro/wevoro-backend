@@ -33,6 +33,7 @@ import config from '../../../config';
 import { User } from '../user/user.model';
 import { PersonalInfo } from '../user/personal-info.model';
 import { sendEmail } from '../auth/sendMail';
+import { publicSiteUrl } from '../../middlewares/site-context';
 
 export type CredentialEmailKind = 'yellow' | 'red' | 'expired' | 'rejected';
 
@@ -57,10 +58,25 @@ const C = {
  * qa.joinhirenza.com, a different product, so every CTA would have sent
  * caregivers to the wrong domain. Set APP_PUBLIC_URL per environment.
  */
-const appUrl = (): string =>
-  (process.env.APP_PUBLIC_URL || 'https://wevoro.com').replace(/\/+$/, '');
+const appUrl = (): string => publicSiteUrl();
 
 const asset = (file: string): string => `${appUrl()}/email/${file}`;
+
+/**
+ * Where every credential-alert CTA sends the caregiver.
+ *
+ * SCRUM-181: deliberately the legacy /pro address, not the renamed /caregiver
+ * one. These alerts are sent by the daily expiry cron, which has no
+ * caregiver-side request behind it — the site comes from whichever API alias
+ * Vercel's scheduler hit, and that is api.wevoro.com, so every alert links to
+ * the live site no matter which side the caregiver uses. wevoro.com still runs
+ * the pre-SCRUM-144 build: /caregiver/profile returns 404 there (checked
+ * 24 Sep), which is the reported dead button, while /pro/profile is served.
+ * /pro/profile is the one address BOTH builds answer — native on the live
+ * site, and forwarded to /caregiver/profile by the new build's LEGACY_URLS
+ * redirect (next.config.mjs), which carries the #credentials fragment over.
+ * Point this at /caregiver/profile once wevoro.com runs the renamed build.
+ */
 const credentialLink = (): string => `${appUrl()}/pro/profile#credentials`;
 
 const SANS = 'Arial,Helvetica,sans-serif';
@@ -69,11 +85,17 @@ const SANS = 'Arial,Helvetica,sans-serif';
 const dayCount = (n: number): string => `${n} ${n === 1 ? 'day' : 'days'}`;
 
 interface Spec {
-  subject: (credential: string) => string;
-  eyebrow: string;
+  /**
+   * SCRUM-150: every wording takes the REAL number of days left, not the band
+   * it belongs to. The subject used to read "expires in 30 days" for a
+   * credential the same email then described as "10 days from today", and the
+   * profile page said 9 — three numbers for one date.
+   */
+  subject: (credential: string, days: number) => string;
+  eyebrow: (days: number) => string;
   accent: string;
   emblem: string;
-  heading: string;
+  heading: (days: number) => string;
   intro: (days: number) => string;
   /** Second row of the detail card; the first row is always CREDENTIAL. */
   rowLabel: string;
@@ -84,26 +106,26 @@ interface Spec {
 
 const SPECS: Record<CredentialEmailKind, Spec> = {
   yellow: {
-    subject: (c) => `Your ${c} expires in 60 days`,
-    eyebrow: 'EXPIRES IN 60 DAYS',
+    subject: (c, days) => `Your ${c} expires in ${dayCount(days)}`,
+    eyebrow: (days) => `EXPIRES IN ${dayCount(days).toUpperCase()}`,
     accent: C.amber,
     emblem: 'emblem-yellow.png',
-    heading: 'Your credential expires in 60 days',
-    intro: () =>
-      'keeping your credentials current keeps you eligible for offers on WeVoro. One of your credentials will expire in 60 days &mdash; you can upload an updated document now so there&rsquo;s no gap in your eligibility. No action is required today.',
+    heading: (days) => `Your credential expires in ${dayCount(days)}`,
+    intro: (days) =>
+      `keeping your credentials current keeps you eligible for offers on WeVoro. One of your credentials expires in ${dayCount(days)} &mdash; you can upload an updated document now so there&rsquo;s no gap in your eligibility. No action is required today.`,
     rowLabel: 'EXPIRES',
     rowValue: ({ expiresOn, days }) => `${expiresOn} &middot; ${dayCount(days)} from today`,
     cta: 'View credential',
     note: 'This is an automated alert from WeVoro. No action is needed if you have already uploaded an updated document.',
   },
   red: {
-    subject: (c) => `Your ${c} expires in 30 days`,
-    eyebrow: 'EXPIRES IN 30 DAYS &middot; ACTION NEEDED',
+    subject: (c, days) => `Your ${c} expires in ${dayCount(days)}`,
+    eyebrow: (days) => `EXPIRES IN ${dayCount(days).toUpperCase()} &middot; ACTION NEEDED`,
     accent: C.red,
     emblem: 'emblem-red.png',
-    heading: 'Your credential expires in 30 days',
-    intro: () =>
-      'one of your credentials will expire in 30 days. To stay eligible for offers, please upload an updated document before it expires &mdash; credentials that lapse will pause your eligibility until a valid document is on file.',
+    heading: (days) => `Your credential expires in ${dayCount(days)}`,
+    intro: (days) =>
+      `one of your credentials expires in ${dayCount(days)}. To stay eligible for offers, please upload an updated document before it expires &mdash; credentials that lapse will pause your eligibility until a valid document is on file.`,
     rowLabel: 'EXPIRES',
     rowValue: ({ expiresOn, days }) => `${expiresOn} &middot; ${dayCount(days)} from today`,
     cta: 'Upload updated document',
@@ -111,10 +133,10 @@ const SPECS: Record<CredentialEmailKind, Spec> = {
   },
   expired: {
     subject: (c) => `Your ${c} has expired`,
-    eyebrow: 'CREDENTIAL EXPIRED',
+    eyebrow: () => 'CREDENTIAL EXPIRED',
     accent: C.red,
     emblem: 'emblem-expired.png',
-    heading: 'Your credential has expired',
+    heading: () => 'Your credential has expired',
     intro: () =>
       'one of your credentials expired today, so your profile is now paused for offers that require it. Upload an updated document to restore your eligibility right away.',
     rowLabel: 'EXPIRED ON',
@@ -124,10 +146,10 @@ const SPECS: Record<CredentialEmailKind, Spec> = {
   },
   rejected: {
     subject: (c) => `Your ${c} submission needs attention`,
-    eyebrow: 'ACTION NEEDED',
+    eyebrow: () => 'ACTION NEEDED',
     accent: C.red,
     emblem: 'emblem-rejected.png',
-    heading: 'Your credential submission needs attention',
+    heading: () => 'Your credential submission needs attention',
     intro: () =>
       'an admin reviewed your recent credential submission and couldn&rsquo;t confirm it for the reason below. Please upload a corrected document so we can complete your verification.',
     rowLabel: 'REASON',
@@ -177,7 +199,7 @@ const renderEmail = (params: {
   return `<!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escape(s.heading)}</title></head>
+<title>${escape(s.heading(days))}</title></head>
 <body style="margin:0;padding:0;background:${C.pageBg};-webkit-text-size-adjust:100%">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
        style="background:${C.pageBg};padding:20px 12px">
@@ -189,7 +211,7 @@ const renderEmail = (params: {
     <!-- Header -->
     <tr><td style="background:${C.green};padding:24px 32px">
       <img src="${asset('header-lockup.png')}" width="189" height="41"
-           alt="Wevoro - CNA Professional Platform"
+           alt="Wevoro - Professional Platform for CNAs and PCAs"
            style="display:block;border:0;outline:none;text-decoration:none;height:auto">
     </td></tr>
 
@@ -203,9 +225,9 @@ const renderEmail = (params: {
         </td></tr>
 
         <tr><td style="font-family:${SANS};font-size:12px;letter-spacing:0.6px;
-            font-weight:bold;color:${s.accent}">${s.eyebrow}</td></tr>
+            font-weight:bold;color:${s.accent}">${s.eyebrow(days)}</td></tr>
         <tr><td style="padding:6px 0 0 0;font-family:${SANS};font-size:22px;line-height:30px;
-            font-weight:bold;color:${C.heading}">${escape(s.heading)}</td></tr>
+            font-weight:bold;color:${C.heading}">${escape(s.heading(days))}</td></tr>
 
         <tr><td style="padding:18px 0 0 0;font-family:${SANS};font-size:14px;line-height:22px;
             color:${C.body}">Hi ${hi}, ${s.intro(days)}</td></tr>
@@ -282,7 +304,7 @@ export const sendCredentialEmail = async (params: {
     const info = await PersonalInfo.findOne({ user: userId }).select('firstName');
     await sendEmail(
       user.email,
-      SPECS[kind].subject(credentialName),
+      SPECS[kind].subject(credentialName, days),
       renderEmail({
         kind,
         credentialName,

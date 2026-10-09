@@ -33,6 +33,13 @@ router.post(
 
 router.get('/my-transactions', auth(ENUM_USER_ROLE.PARTNER), PaymentController.myTransactions);
 
+// SCRUM-142/143: WeVoro's receipt, stored on the transaction.
+router.get(
+  '/receipt/:transactionId',
+  auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
+  PaymentController.receipt
+);
+
 // QA only. The service refuses this outright once Stripe is configured.
 router.post(
   '/simulate/:transactionId',

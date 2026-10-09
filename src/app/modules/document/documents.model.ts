@@ -16,10 +16,16 @@ const DocumentsSchema = new Schema<any>(
     title: {
       type: String,
     },
+    // SCRUM-177: the caregiver no longer chooses public/private on upload, so
+    // every document is stored visible. The field itself stays — the offer flow
+    // and the document cards still read it — but 'private' is no longer written
+    // by any path, and the default flips so a row created without one is
+    // visible rather than hidden. Existing 'private' rows are moved over by
+    // scripts/migrate-document-privacy.ts.
     privacy: {
       type: String,
       enum: ['public', 'private'],
-      default: 'private',
+      default: 'public',
     },
     url: {
       type: String,
@@ -31,6 +37,17 @@ const DocumentsSchema = new Schema<any>(
     consent: {
       type: Boolean,
     },
+
+    // SCRUM-177 (Scenario 3): the consent record for a medical document. Kept
+    // on the row itself, the same way this codebase keeps its other per-document
+    // audit data (reviewedAt / reviewedBy / wevoroCredentialId) — the caregiver
+    // is the row's `user`, the document is the row, and these three say when
+    // consent was given, by whom, and against which wording. `consentVersion`
+    // is the wording version the caregiver actually agreed to, so a later
+    // rewording cannot be read back onto an old consent.
+    consentAt: { type: Date },
+    consentBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    consentVersion: { type: String },
     reviewStatus: {
       type: String,
       enum: ['pending', 'approved', 'rejected'],
@@ -97,6 +114,14 @@ const DocumentsSchema = new Schema<any>(
     // with any more automation.
     aiSuggestedReason: { type: String },
     adminAgreedWithAi: { type: Boolean },
+
+    // What the AI read off the file: the four fields it pre-fills for the
+    // admin, plus the problems it noticed and the suggestion it made. Stored
+    // (not just returned) so the admin sees the same reading when the modal is
+    // reopened, and so a decision can be compared with what was suggested.
+    // Schema-less on purpose — it is a record of one model answer, not data any
+    // query filters on.
+    aiExtraction: { type: Schema.Types.Mixed },
     reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
   },
   {

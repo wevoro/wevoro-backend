@@ -24,3 +24,32 @@ test*.mjs
 # QA test artifacts — never commit
 QA-*.html
 *-SCRUM-*.html
+
+# Test sheets, reports, guides and any generated document — these are written and
+# read on the dev machine only and must never reach the repository.
+/features-*.html
+/*-report.html
+/*-guide.html
+/*TEST*.html
+/*-SCRUM-*.html
+/QA-*.html
+/*.pdf
+qa-shots/
+
+# Generated reports, guides, walkthroughs, invoices, proposals and proof screenshots.
+# Built and read on the dev machine only; they must never reach GitHub or Vercel.
+# Root-anchored on purpose: public/ holds real site images (public/email/*.png is
+# used by the emails) and the backend deploys from the committed dist/, so an
+# unanchored *.png or *.pdf rule would break the site.
+/*.html
+/*.pdf
+/*.png
+/*.jpg
+/*.jpeg
+/*.docx
+/*.xlsx
+/*.csv
+qa-shots/
+qa-evidence/
+qa-regression/
+figma-refs/

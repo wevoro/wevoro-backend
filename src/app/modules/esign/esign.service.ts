@@ -14,9 +14,7 @@ import {
 } from './esign-document.service';
 import {
   sendDocumentReplacedEmail,
-  sendSignedPackageEmail,
   sendSignatureReminderEmail,
-  sendSigningCompleteEmail,
 } from './esign-email.service';
 
 /**
@@ -286,7 +284,7 @@ const issueToOpenPackets = async (
         `<strong>${added.length === 1 ? 'A new document needs your signature' : `${added.length} new documents need your signature`}</strong><br />` +
         `${agencyName} added ${added.length === 1 ? added[0].title : `${added.length} documents`} to your onboarding.`,
       type: 'esign_added',
-      ctaLink: '/pro/offers',
+      ctaLink: '/caregiver/offers',
       isRead: false,
     });
   }
@@ -414,7 +412,7 @@ export const replaceDocument = async (
         `<strong>This document was updated</strong><br />` +
         `Your agency sent a newer version. The previous copy is no longer valid — please sign the updated document below.`,
       type: 'esign_replaced',
-      ctaLink: '/pro/offers',
+      ctaLink: '/caregiver/offers',
       isRead: false,
     });
     await sendDocumentReplacedEmail({
@@ -724,47 +722,30 @@ export const signItem = async (params: {
   if (allSigned) {
     const caregiverName = await displayName(String(packet.caregiver));
     const count = (packet.items as any[]).filter((i) => i.status === 'signed').length;
-    await Notification.create({
-      user: packet.agency,
-      message: `<strong>${caregiverName}</strong> signed all ${count} ${packet.role} documents.`,
-      type: 'esign_completed',
-      ctaLink: '/partner/onboardings',
-      isRead: false,
-    });
-    // Package everything and deliver it. The agency gets the ZIP attached to
-    // the completion email AND a copy stored on the packet, so it stays
-    // reachable from their account after the email is gone.
-    let pkg: { url: string; bytes: Buffer; fileName: string } | null = null;
+    // Keep a packaged copy on the packet for the record.
     try {
       const files = (packet.items as any[])
         .filter((i) => i.status === 'signed' && i.signedFileUrl)
         .map((i) => ({ title: i.title, url: i.signedFileUrl as string }));
       if (files.length) {
-        pkg = await buildPackage({ caregiverName, role: packet.role, files });
+        const pkg = await buildPackage({ caregiverName, role: packet.role, files });
         packet.packageUrl = pkg.url;
-        packet.packageSentAt = new Date();
         await packet.save();
       }
     } catch (err: any) {
       console.error('[esign] could not build the signed package:', err?.message);
     }
 
-    if (pkg) {
-      await sendSignedPackageEmail({
-        agencyId: String(packet.agency),
-        caregiverName,
-        role: packet.role,
-        count,
-        zip: { filename: pkg.fileName, content: pkg.bytes },
-      });
-    } else {
-      await sendSigningCompleteEmail({
-        agencyId: String(packet.agency),
-        caregiverName,
-        role: packet.role,
-        count,
-      });
-    }
+    // SCRUM-141: signing everything IS the caregiver's response. Mark the offer
+    // submitted, which opens payment and download for the agency, and tell the
+    // agency. The signed copies are no longer emailed as an attachment: they
+    // ship inside the credential package the agency pays for, as one bundle.
+    const { markOfferSubmitted } = await import('../offer/onboarding.service');
+    await markOfferSubmitted({
+      offerId: String(packet.offer),
+      at: packet.completedAt,
+      signedCount: count,
+    });
   }
   return packet;
 };
@@ -803,7 +784,7 @@ export const runSigningReminders = async (): Promise<void> => {
         pendingCount === 1 ? 'document' : 'documents'
       }. It only takes a minute to finish.`,
       type: 'esign_reminder',
-      ctaLink: '/pro/offers',
+      ctaLink: '/caregiver/offers',
       isRead: false,
     });
     await sendSignatureReminderEmail({

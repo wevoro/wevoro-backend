@@ -20,6 +20,18 @@ router.get('/', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_U
 router.delete('/:documentId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.ADMIN), document_controller_1.DocumentController.deleteDocument);
 // Admin: review (approve/reject) a document
 router.patch('/:documentId/review', (0, auth_1.default)(user_1.ENUM_USER_ROLE.ADMIN), document_controller_1.DocumentController.reviewDocument);
+// Admin: AI reads the credential and pre-fills the confirmation form.
+router.post('/:documentId/ai-extract', (0, auth_1.default)(user_1.ENUM_USER_ROLE.ADMIN), document_controller_1.DocumentController.aiExtractCredential);
+// Admin: how much of the review the AI is allowed to do. Declared before any
+// '/:param' route so "ai-settings" is never read as a document id.
+router.get('/ai-settings', (0, auth_1.default)(user_1.ENUM_USER_ROLE.ADMIN), document_controller_1.DocumentController.getCredentialAiSettings);
+router.patch('/ai-settings', (0, auth_1.default)(user_1.ENUM_USER_ROLE.ADMIN), document_controller_1.DocumentController.updateCredentialAiSettings);
+// Admin "Run AI check": read and decide every credential of one caregiver.
+router.post('/ai-review/user/:userId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.ADMIN), document_controller_1.DocumentController.aiReviewUser);
+// SCRUM-130: viewing a credential is free. Streams the file inline through the
+// server so the agency never receives the unsigned CDN url that the paid
+// download sells. Declared before any '/:param' GET so it cannot be shadowed.
+router.get('/view/:documentId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.PRO, user_1.ENUM_USER_ROLE.ADMIN, user_1.ENUM_USER_ROLE.SUPER_ADMIN), document_controller_1.DocumentController.viewDocument);
 // Get credential status for a user.
 // SECURITY (SCRUM-109): this was previously unauthenticated ("public for agency
 // view"). It bypasses filterVisibleDocuments, so anyone who knew a userId could
@@ -34,6 +46,11 @@ router.delete('/:documentId/remove-credential', (0, auth_1.default)(user_1.ENUM_
 router.get('/download/:documentId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), document_controller_1.DocumentController.downloadDocument);
 // SCRUM-67: Get bulk download package (partner auth)
 router.get('/download-package/:caregiverUserId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), document_controller_1.DocumentController.getDownloadPackage);
+// SCRUM-67 Scenario 2: the package as one zip. The per-file loop it replaces
+// only ever delivered the first document.
+router.get('/download-package-zip/:caregiverUserId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), document_controller_1.DocumentController.getDownloadPackageZip);
+// SCRUM-119 (A10): one signed document from a paid packet.
+router.get('/download-signed/:caregiverUserId/:itemId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), document_controller_1.DocumentController.downloadSignedDocument);
 // SCRUM-119: locked/unlocked file list for the documents modal. Free to view —
 // urls are withheld until the packet is paid for.
 router.get('/packet-manifest/:caregiverUserId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), document_controller_1.DocumentController.getPacketManifest);

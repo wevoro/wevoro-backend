@@ -4,6 +4,7 @@ export type IFeedback = {
   message: string;
   feedbackType: 'Feature request' | 'Report a bug to fix' | 'Others';
   selections?: string[];
+  screenshot?: string;
   isReadByAdmin?: boolean;
   status?: 'New' | 'Pending' | 'Solved';
   createdAt?: Date;

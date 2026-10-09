@@ -35,7 +35,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DownloadService = void 0;
+exports.DownloadService = exports.fileTypeFromUrl = void 0;
+const mongoose_1 = require("mongoose");
 const documents_model_1 = require("./documents.model");
 const download_audit_model_1 = require("./download-audit.model");
 const private_access_model_1 = require("./private-access.model");
@@ -47,6 +48,8 @@ const credential_visibility_1 = require("./credential-visibility");
 const user_model_1 = require("../user/user.model");
 const ApiError_1 = __importDefault(require("../../../errors/ApiError"));
 const http_status_1 = __importDefault(require("http-status"));
+const credentials_1 = require("../../../constants/credentials");
+const esign_model_1 = require("../esign/esign.model");
 /**
  * SCRUM-67: Download Service
  * Handles individual and bulk credential document downloads,
@@ -59,8 +62,9 @@ const http_status_1 = __importDefault(require("http-status"));
  * credential packet. Entitlement is per (agency, caregiver) pair and permanent,
  * so a re-download never charges twice.
  *
- * Deliberately independent of e-signature status (AC #6) — nothing here reads a
- * signature packet, so a caregiver mid-signature never blocks a sale.
+ * SCRUM-141: the signature gate sits in front of this one — checkout refuses
+ * until the caregiver has responded, so no new entitlement can exist without
+ * it. A packet bought before that gate existed keeps downloading.
  *
  * Throws 402 Payment Required carrying the price, which is what tells the
  * client to open the payment gate rather than showing a generic error.
@@ -81,16 +85,30 @@ const requirePacketEntitlement = (agencyId, caregiverId) => __awaiter(void 0, vo
     throw error;
 });
 /**
+ * SCRUM-67: a malformed caregiver id in a download link is "not found", said in
+ * words. Left to Mongoose it throws a CastError, which the global handler sends
+ * back as a 400 reading "Cast Error" — and the client shows that to the agency.
+ */
+const assertCaregiverId = (caregiverId) => {
+    if (!mongoose_1.Types.ObjectId.isValid(caregiverId)) {
+        throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'Caregiver not found');
+    }
+};
+/**
  * Check if an agency has download access to a caregiver's documents.
  * Access requires: share-flow onboarding OR active engagement.
  */
 // SCRUM-99: gate a single credential download. An agency can download a
 // sensitive credential only once it is Confirmed (approved); general
 // credentials are always downloadable. Owner/admin always allowed.
-const hasDownloadAccess = (agencyId, caregiverId, documentType) => __awaiter(void 0, void 0, void 0, function* () {
+const hasDownloadAccess = (agencyId, caregiverId, 
+// SCRUM-177: the whole row, because a document's tier now depends on its
+// category as well as its type. Absent when the caller is asking about the
+// caregiver as a whole rather than one file.
+document) => __awaiter(void 0, void 0, void 0, function* () {
     if (!agencyId || agencyId.toString() === caregiverId.toString())
         return true;
-    if (!(0, credential_visibility_1.isSensitiveCredential)(documentType))
+    if (!document || !(0, credential_visibility_1.isSensitiveCredential)(document))
         return true;
     const agency = yield user_model_1.User.findById(agencyId, { status: 1, role: 1 });
     if (agency && (agency.role === 'admin' || agency.role === 'super_admin')) {
@@ -99,32 +117,189 @@ const hasDownloadAccess = (agencyId, caregiverId, documentType) => __awaiter(voi
     return (0, credential_visibility_1.isAgencyConfirmed)(agency === null || agency === void 0 ? void 0 : agency.status);
 });
 /**
+ * SCRUM-119 (A9): the real type of a stored file.
+ *
+ * The documents modal labels every row "PDF" in red because nothing recorded
+ * what a file actually is, while caregivers may upload JPG and PNG credentials
+ * and Faisal's A9 frame shows a green "JPG" on the Driver's License. The upload
+ * keeps the original extension on the CDN name (helpers/bunny-upload.ts), so
+ * that is read first; a name with no usable extension falls back to the
+ * content-type the CDN reports.
+ */
+const FILE_TYPES = {
+    pdf: { fileType: 'PDF', mimeType: 'application/pdf' },
+    jpg: { fileType: 'JPG', mimeType: 'image/jpeg' },
+    jpeg: { fileType: 'JPG', mimeType: 'image/jpeg' },
+    png: { fileType: 'PNG', mimeType: 'image/png' },
+    gif: { fileType: 'GIF', mimeType: 'image/gif' },
+    webp: { fileType: 'WEBP', mimeType: 'image/webp' },
+    heic: { fileType: 'HEIC', mimeType: 'image/heic' },
+    doc: { fileType: 'DOC', mimeType: 'application/msword' },
+    docx: {
+        fileType: 'DOCX',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    },
+};
+const fileTypeFromUrl = (url) => {
+    var _a;
+    const name = String(url || '').split(/[?#]/)[0].split('/').pop() || '';
+    if (!name.includes('.'))
+        return null;
+    return (_a = FILE_TYPES[name.split('.').pop().toLowerCase()]) !== null && _a !== void 0 ? _a : null;
+};
+exports.fileTypeFromUrl = fileTypeFromUrl;
+const fileTypeFromMime = (contentType) => {
+    var _a;
+    const mime = String(contentType || '').split(';')[0].trim().toLowerCase();
+    if (!mime)
+        return null;
+    return (_a = Object.values(FILE_TYPES).find((t) => t.mimeType === mime)) !== null && _a !== void 0 ? _a : null;
+};
+/**
+ * Type and size of a stored file for a manifest row. Only asks the CDN (HEAD,
+ * short timeout) for what the database cannot answer, so a normal row costs no
+ * request at all; a slow or failed answer just leaves the value off.
+ */
+const describeFile = (url, knownSize) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b, _c, _d, _e, _f;
+    const fromName = (0, exports.fileTypeFromUrl)(url);
+    const size = Number(knownSize);
+    const haveSize = Number.isFinite(size) && size > 0;
+    if (!url || (fromName && haveSize)) {
+        return {
+            fileType: (_a = fromName === null || fromName === void 0 ? void 0 : fromName.fileType) !== null && _a !== void 0 ? _a : null,
+            mimeType: (_b = fromName === null || fromName === void 0 ? void 0 : fromName.mimeType) !== null && _b !== void 0 ? _b : null,
+            fileSize: haveSize ? size : null,
+        };
+    }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 2500);
+    try {
+        const res = yield fetch(url, { method: 'HEAD', signal: ctrl.signal });
+        const type = fromName !== null && fromName !== void 0 ? fromName : fileTypeFromMime(res.headers.get('content-type'));
+        const len = Number(res.headers.get('content-length'));
+        return {
+            fileType: (_c = type === null || type === void 0 ? void 0 : type.fileType) !== null && _c !== void 0 ? _c : null,
+            mimeType: (_d = type === null || type === void 0 ? void 0 : type.mimeType) !== null && _d !== void 0 ? _d : null,
+            fileSize: haveSize ? size : Number.isFinite(len) && len > 0 ? len : null,
+        };
+    }
+    catch (_g) {
+        return {
+            fileType: (_e = fromName === null || fromName === void 0 ? void 0 : fromName.fileType) !== null && _e !== void 0 ? _e : null,
+            mimeType: (_f = fromName === null || fromName === void 0 ? void 0 : fromName.mimeType) !== null && _f !== void 0 ? _f : null,
+            fileSize: haveSize ? size : null,
+        };
+    }
+    finally {
+        clearTimeout(timer);
+    }
+});
+/**
+ * Every credential WeVoro has confirmed for this caregiver, before the SCRUM-99
+ * tier gate is applied. The packet, the ZIP, the one-file download and the
+ * receipt all derive from this, so they cannot disagree about what is in it.
+ */
+const getConfirmedCredentials = (caregiverId) => __awaiter(void 0, void 0, void 0, function* () {
+    // SCRUM-131: a packet may only contain credentials WeVoro has confirmed.
+    // SCRUM-67 Scenario 3 forbids shipping a Pending credential — an agency must
+    // never pay for a document nobody has verified.
+    //
+    // And credentials ONLY: the five required types, plus the GCHEXS background
+    // check added below. Supporting documents (resume, letters and the like) are
+    // not part of the packet. They used to be shipped — including ones the
+    // caregiver had marked Private, whose upload modal promises "only after your
+    // consent" — so the list and the ZIP both carried files the agency had no
+    // business receiving.
+    const confirmed = yield documents_model_1.Documents.find({
+        user: caregiverId,
+        url: { $exists: true, $nin: [null, ''] },
+        documentType: { $in: credentials_1.REQUIRED_CREDENTIAL_KEYS },
+        reviewStatus: 'approved',
+    });
+    // SCRUM-155: the package lists credentials in the display order every screen
+    // uses. Unsorted, the ZIP and the package window followed upload order.
+    //
+    // SCRUM-165: an approved RN/LPN practical sign-off is a 'certifications' row,
+    // so it ships here with no query change, but it ranked level with the
+    // certificate and could land above it. It goes right after it instead.
+    const signoffLast = (d) => ((0, credentials_1.isPrimaryCredentialRow)(d) ? 0 : 1);
+    confirmed.sort((a, b) => (0, credentials_1.credentialDisplayRank)(a.documentType) - (0, credentials_1.credentialDisplayRank)(b.documentType) ||
+        signoffLast(a) - signoffLast(b));
+    // SCRUM-67 / SCRUM-131: the GCHEXS background check follows the same rule.
+    // It used to be built straight from ProfessionalInfo.gchexsDocumentUrl with
+    // no review check at all, so a Pending background check went out in paid
+    // packets (Priya Nair and Lena Thompson on QA) while every other credential
+    // was held back. SCRUM-151 keeps the caregiver's GCHEXS Documents row in step
+    // with the admin's background-check decision, so that row's reviewStatus is
+    // the verdict.
+    //
+    // The caregiver still has to be saying "yes": answering "no" later keeps the
+    // file on record (SCRUM-66) but withdraws it from the packet, as before.
+    const profInfo = yield professional_info_model_1.ProfessionalInfo.findOne({ user: caregiverId }).select('gchexsStatus');
+    if ((profInfo === null || profInfo === void 0 ? void 0 : profInfo.gchexsStatus) === 'yes') {
+        // The newest row is the live one. SCRUM-146 left older duplicates in
+        // place, and one of those approved before a re-upload must not stand in
+        // for the replacement that is still waiting for review.
+        const gchexs = yield documents_model_1.Documents.findOne({
+            user: caregiverId,
+            documentType: 'gchexs',
+            url: { $exists: true, $nin: [null, ''] },
+        })
+            .sort({ updatedAt: -1 })
+            .lean();
+        if ((gchexs === null || gchexs === void 0 ? void 0 : gchexs.reviewStatus) === 'approved') {
+            // A real Documents row, so its id works wherever an id is expected. The
+            // one-file download used to receive the literal 'gchexs' and answer the
+            // agency with "Cast Error".
+            confirmed.push(Object.assign(Object.assign({}, gchexs), { title: gchexs.title || 'GCHEXS Confirmation', isGchexs: true }));
+        }
+    }
+    return confirmed;
+});
+/**
  * Get all downloadable documents for a caregiver (from agency perspective)
  */
 const getDownloadableDocuments = (caregiverId, agencyId) => __awaiter(void 0, void 0, void 0, function* () {
-    // Get ALL documents with valid URLs for the caregiver
-    // Partners can view/download any document that has a file uploaded
-    const allUploadedDocs = yield documents_model_1.Documents.find({
-        user: caregiverId,
-        url: { $exists: true, $nin: [null, ''] },
-    });
-    // GCHEXS document
-    const profInfo = yield professional_info_model_1.ProfessionalInfo.findOne({ user: caregiverId });
-    let gchexsDoc = null;
-    if ((profInfo === null || profInfo === void 0 ? void 0 : profInfo.gchexsStatus) === 'yes' && (profInfo === null || profInfo === void 0 ? void 0 : profInfo.gchexsDocumentUrl)) {
-        gchexsDoc = {
-            _id: 'gchexs',
-            title: 'GCHEXS Confirmation',
-            url: profInfo.gchexsDocumentUrl,
-            documentType: 'gchexs',
-            isGchexs: true,
-        };
-    }
-    const allDocs = [...allUploadedDocs];
-    if (gchexsDoc)
-        allDocs.push(gchexsDoc);
+    const confirmed = yield getConfirmedCredentials(caregiverId);
     // SCRUM-99: gate sensitive credentials for un-confirmed agencies.
-    return (0, credential_visibility_1.filterVisibleDocuments)(allDocs, agencyId, caregiverId);
+    const visible = yield (0, credential_visibility_1.filterVisibleDocuments)(confirmed, agencyId, caregiverId);
+    /*
+     * SCRUM-194: the packet stays live for the whole 30-day window.
+     *
+     * An earlier build froze the file list at the moment of payment. The 9/30
+     * dev sync replaced that: inside the window the agency sees whatever the
+     * caregiver has now, replacements included, at no extra charge. The window
+     * itself is what limits access, and findEntitlement enforces it — once
+     * accessEndsAt has passed there is no entitlement, so nothing is served.
+     */
+    return visible;
+});
+/**
+ * SCRUM-141: the documents this caregiver signed for this agency. They ship in
+ * the same package as the credentials, as one bundle, once the agency has paid.
+ */
+const getSignedDocuments = (caregiverId, agencyId) => __awaiter(void 0, void 0, void 0, function* () {
+    const packets = yield esign_model_1.SignaturePacket.find({
+        agency: agencyId,
+        caregiver: caregiverId,
+    })
+        .sort({ createdAt: 1 })
+        .lean();
+    return packets.flatMap((p) => {
+        var _a;
+        return ((_a = p.items) !== null && _a !== void 0 ? _a : [])
+            .filter((i) => i.status === 'signed' && i.signedFileUrl)
+            .map((i) => {
+            var _a;
+            return ({
+                _id: String(i._id),
+                title: i.title,
+                signedAt: (_a = i.signedAt) !== null && _a !== void 0 ? _a : null,
+                url: i.signedFileUrl,
+            });
+        });
+    });
 });
 /**
  * Log a download event to the audit trail
@@ -169,60 +344,200 @@ const logDownload = (params) => __awaiter(void 0, void 0, void 0, function* () {
             console.error('Failed to fire credentials-downloaded notification:', err);
         }
     }
-    // SCRUM-117/118: the download IS the connection. Open an offer for the pair
-    // so the agency's signing documents actually reach the caregiver — every
-    // signing surface in the design hangs off an offer, so without this a
-    // connection sent nothing despite the copy promising it does.
-    //
-    // Deliberately OUTSIDE the first-download branch. Every pair that connected
-    // before this shipped already has audit rows, so a first-download gate would
-    // exclude exactly those pairs for ever: the agency would keep seeing "sent
-    // automatically on connection" while the caregiver was never asked to sign
-    // anything. ensureOfferOnConnection is idempotent — it returns early when an
-    // offer already exists — so running it on every download costs one indexed
-    // lookup and backfills the pairs the gate had stranded.
-    try {
-        const { ensureOfferOnConnection } = yield Promise.resolve().then(() => __importStar(require('../esign/esign.service')));
-        yield ensureOfferOnConnection({
-            agencyId: params.agencyId,
-            caregiverId: params.caregiverId,
-        });
-    }
-    catch (err) {
-        console.error('Failed to open the connection offer:', err);
-    }
+    // SCRUM-141: downloading no longer opens an offer. The agency's Onboard
+    // button does that now, and a download is only possible after the caregiver
+    // has responded to it.
 });
 /**
  * Download a single document (returns the document URL + logs audit)
  */
 const downloadDocument = (documentId, agencyId) => __awaiter(void 0, void 0, void 0, function* () {
+    // A malformed id is a missing document, not a database error. Mongoose
+    // throws a CastError for it, which reached the agency as a toast reading
+    // "Cast Error" — the packet's GCHEXS row sent the literal id 'gchexs'.
+    if (!mongoose_1.Types.ObjectId.isValid(documentId)) {
+        throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'Document not found');
+    }
     const doc = yield documents_model_1.Documents.findById(documentId);
     if (!doc) {
         throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'Document not found');
     }
     // Check access (SCRUM-99: sensitive credentials require a Confirmed agency)
-    const hasAccess = yield hasDownloadAccess(agencyId, doc.user.toString(), doc.documentType);
+    const hasAccess = yield hasDownloadAccess(agencyId, doc.user.toString(), doc);
     if (!hasAccess) {
         throw new ApiError_1.default(http_status_1.default.FORBIDDEN, 'You do not have access to download this document');
     }
     // SCRUM-119: the packet is paid per caregiver, so an individual file is
     // covered by the same entitlement as the bulk download.
     yield requirePacketEntitlement(agencyId, doc.user.toString());
-    // Partners can download any document that has a URL (file uploaded)
+    // SCRUM-131 / SCRUM-67: one file releases exactly what the packet does. This
+    // used to hand over any Documents row by id once the packet was paid for — a
+    // Pending or Rejected credential, or a supporting document the packet
+    // deliberately leaves out — so the rule the ZIP follows could be stepped
+    // around one file at a time.
+    const packet = yield getDownloadableDocuments(doc.user.toString(), agencyId);
+    const inPacket = packet.find((d) => String(d._id) === String(doc._id));
+    if (!inPacket) {
+        throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'This document is not part of the credential package. Only credentials WeVoro has confirmed can be downloaded.');
+    }
     // Log the download
     yield logDownload({
         agencyId,
         caregiverId: doc.user.toString(),
         documentId: doc._id.toString(),
-        documentTitle: doc.title,
+        documentTitle: inPacket.title || doc.title,
         downloadType: 'individual',
     });
-    return { url: doc.url, title: doc.title, documentType: doc.documentType };
+    return {
+        url: doc.url,
+        title: inPacket.title || doc.title,
+        documentType: doc.documentType,
+    };
+});
+/**
+ * SCRUM-119 (A10) — one document the caregiver signed for this agency.
+ *
+ * The unlocked packet gives every row its own download arrow, signed documents
+ * included. Same rules as the ZIP: the agency must have access to the caregiver
+ * and must have paid for the packet. Only this agency's own signed items can be
+ * found, so another agency's signatures are never reachable by id.
+ */
+const downloadSignedDocument = (caregiverId, itemId, agencyId) => __awaiter(void 0, void 0, void 0, function* () {
+    assertCaregiverId(caregiverId);
+    const hasAccess = yield hasDownloadAccess(agencyId, caregiverId);
+    if (!hasAccess) {
+        throw new ApiError_1.default(http_status_1.default.FORBIDDEN, 'You do not have access to this caregiver\'s documents');
+    }
+    yield requirePacketEntitlement(agencyId, caregiverId);
+    const signed = yield getSignedDocuments(caregiverId, agencyId);
+    const item = signed.find((d) => d._id === String(itemId));
+    if (!item) {
+        throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'Signed document not found');
+    }
+    yield logDownload({
+        agencyId,
+        caregiverId,
+        documentId: item._id,
+        documentTitle: `Signed: ${item.title}`,
+        downloadType: 'individual',
+    });
+    return { url: item.url, title: item.title };
 });
 /**
  * Get download package info (list of all downloadable docs for bulk download)
  */
+/**
+ * SCRUM-67 Scenario 2 — the package as an actual package.
+ *
+ * The client used to loop over the documents and click one hidden <a download>
+ * per file, pointed straight at the CDN. Two things went wrong with that: a
+ * browser blocks repeated programmatic downloads, so only the first file ever
+ * landed, and the `download` attribute is ignored cross-origin anyway, so the
+ * rest opened instead of saving. An agency was told "Downloading 3 documents"
+ * and got one.
+ *
+ * Zipping server-side fixes both, and keeps the CDN links off the client, which
+ * is the same reason viewing goes through the server (SCRUM-130).
+ */
+const getDownloadPackageZip = (caregiverId, agencyId) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b, _c;
+    assertCaregiverId(caregiverId);
+    const hasAccess = yield hasDownloadAccess(agencyId, caregiverId);
+    if (!hasAccess) {
+        throw new ApiError_1.default(http_status_1.default.FORBIDDEN, "You do not have access to this caregiver's documents");
+    }
+    yield requirePacketEntitlement(agencyId, caregiverId);
+    const docs = yield getDownloadableDocuments(caregiverId, agencyId);
+    // SCRUM-141: one bundle, two folders — the same two groups the documents
+    // modal shows before the agency pays.
+    const signed = yield getSignedDocuments(caregiverId, agencyId);
+    // SCRUM-117 / SCRUM-67: the ZIP is built from whatever the agency is
+    // entitled to. It used to refuse whenever no credential was confirmed yet,
+    // before the signed documents were even looked at, so a paid agency whose
+    // caregiver had signed everything (Marcus Bennett on QA: 9 signed, 0
+    // confirmed) could never fetch the files the modal lists as "Included".
+    // Only a package with truly nothing in it is refused.
+    if (!docs.length && !signed.length) {
+        throw new ApiError_1.default(http_status_1.default.NOT_FOUND, 'There is nothing to download yet. None of this caregiver’s credentials have been confirmed by WeVoro, and they have not signed any of your documents.');
+    }
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const JSZip = require('jszip');
+    const zip = new JSZip();
+    const entries = [
+        ...docs.map((d) => ({
+            folder: 'Credential documents',
+            title: d.title || d.documentType || 'document',
+            url: d.url,
+        })),
+        ...signed.map((d) => ({
+            folder: 'Signed documents',
+            title: d.title || 'signed document',
+            url: d.url,
+        })),
+    ];
+    const used = new Set();
+    let added = 0;
+    let signedAdded = 0;
+    for (const e of entries) {
+        if (!e.url)
+            continue;
+        try {
+            const res = yield fetch(e.url);
+            if (!res.ok)
+                continue;
+            // SCRUM-119: the same type the modal's badge shows, so a JPG credential
+            // lands as .jpg and a name with no extension still gets a real one.
+            const type = (_a = (0, exports.fileTypeFromUrl)(e.url)) !== null && _a !== void 0 ? _a : fileTypeFromMime(res.headers.get('content-type'));
+            const rawExt = (_c = (_b = /\.([a-z0-9]{2,5})$/i
+                .exec(String(e.url).split(/[?#]/)[0])) === null || _b === void 0 ? void 0 : _b[1]) === null || _c === void 0 ? void 0 : _c.toLowerCase();
+            const ext = (type === null || type === void 0 ? void 0 : type.fileType.toLowerCase()) || rawExt || 'pdf';
+            let name = `${e.folder}/${String(e.title).replace(/[^\w.-]+/g, '_')}.${ext}`;
+            // Two documents can share a title; a zip silently overwrites a
+            // duplicate entry, which would quietly shrink the package again.
+            let n = 2;
+            while (used.has(name)) {
+                name = `${name.replace(/(_\d+)?\.[^.]+$/, '')}_${n++}.${ext}`;
+            }
+            used.add(name);
+            zip.file(name, Buffer.from(yield res.arrayBuffer()));
+            added++;
+            if (e.folder === 'Signed documents')
+                signedAdded++;
+        }
+        catch (_d) {
+            // One unreachable file must not fail the whole package.
+        }
+    }
+    if (!added) {
+        throw new ApiError_1.default(http_status_1.default.BAD_GATEWAY, 'Could not fetch the credential files right now. Please try again.');
+    }
+    // The GCHEXS entry is a real Documents row now, so every credential has an
+    // id worth recording.
+    yield logDownload({
+        agencyId,
+        caregiverId,
+        downloadType: 'bulk',
+        documentsIncluded: [
+            ...docs
+                .filter((d) => d._id)
+                .map((d) => { var _a; return ({ documentId: (_a = d._id) === null || _a === void 0 ? void 0 : _a.toString(), title: d.title }); }),
+            ...signed.map((d) => ({ documentId: d._id, title: `Signed: ${d.title}` })),
+        ],
+    });
+    const buffer = yield zip.generateAsync({ type: 'nodebuffer' });
+    // SCRUM-67: what is really inside the ZIP. The client's toast used to count
+    // the credential list and forget the signed documents added beside it —
+    // "Downloaded 5 documents" for a ZIP holding 7.
+    return {
+        buffer,
+        fileName: 'credential-package.zip',
+        count: added,
+        credentialCount: added - signedAdded,
+        signedCount: signedAdded,
+    };
+});
 const getDownloadPackage = (caregiverId, agencyId) => __awaiter(void 0, void 0, void 0, function* () {
+    assertCaregiverId(caregiverId);
     const hasAccess = yield hasDownloadAccess(agencyId, caregiverId);
     if (!hasAccess) {
         throw new ApiError_1.default(http_status_1.default.FORBIDDEN, 'You do not have access to this caregiver\'s documents');
@@ -231,13 +546,13 @@ const getDownloadPackage = (caregiverId, agencyId) => __awaiter(void 0, void 0, 
     // any URL is produced, so an unpaid agency never receives a file link.
     yield requirePacketEntitlement(agencyId, caregiverId);
     const docs = yield getDownloadableDocuments(caregiverId, agencyId);
-    // Log bulk download — skip non-ObjectId entries like the GCHEXS virtual doc
+    // Log bulk download
     yield logDownload({
         agencyId,
         caregiverId,
         downloadType: 'bulk',
         documentsIncluded: docs
-            .filter((d) => d._id && d._id !== 'gchexs')
+            .filter((d) => d._id)
             .map((d) => {
             var _a;
             return ({
@@ -251,6 +566,8 @@ const getDownloadPackage = (caregiverId, agencyId) => __awaiter(void 0, void 0, 
         title: d.title,
         url: d.url,
         documentType: d.documentType,
+        // SCRUM-165: tells the certificate and the RN/LPN sign-off apart.
+        part: d.part,
         reviewStatus: d.reviewStatus,
     }));
 });
@@ -281,7 +598,7 @@ const requestPrivateAccess = (agencyId, caregiverId) => __awaiter(void 0, void 0
             user: caregiverId,
             message: `<strong>${agencyName}</strong> has requested access to your private documents. Review and respond on your profile.`,
             type: 'private_access_request',
-            ctaLink: '/pro/profile#documents',
+            ctaLink: '/caregiver/profile#documents',
             isRead: false,
         });
         return existing;
@@ -298,7 +615,7 @@ const requestPrivateAccess = (agencyId, caregiverId) => __awaiter(void 0, void 0
         user: caregiverId,
         message: `<strong>${agencyName}</strong> has requested access to your private documents. Review and respond on your profile.`,
         type: 'private_access_request',
-        ctaLink: '/pro/profile#documents',
+        ctaLink: '/caregiver/profile#documents',
         isRead: false,
     });
     return access;
@@ -333,7 +650,7 @@ const updatePrivateAccess = (accessId, caregiverId, action) => __awaiter(void 0,
             ? `<strong>${caregiverName}</strong> has granted you access to their private documents.`
             : `<strong>${caregiverName}</strong> has revoked your access to their private documents.`,
         type: notificationType,
-        ctaLink: `/partner/pros/${caregiverId}`,
+        ctaLink: `/agency/caregivers/${caregiverId}`,
         isRead: false,
     });
     return access;
@@ -368,6 +685,7 @@ const getDownloadAuditLog = (caregiverId) => __awaiter(void 0, void 0, void 0, f
  * does not fire the connection side effect.
  */
 const getPacketManifest = (caregiverId, agencyId) => __awaiter(void 0, void 0, void 0, function* () {
+    assertCaregiverId(caregiverId);
     const hasAccess = yield hasDownloadAccess(agencyId, caregiverId);
     if (!hasAccess) {
         throw new ApiError_1.default(http_status_1.default.FORBIDDEN, 'You do not have access to this caregiver\'s documents');
@@ -375,25 +693,81 @@ const getPacketManifest = (caregiverId, agencyId) => __awaiter(void 0, void 0, v
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { getPacketStatus } = require('../payment/payment.service');
     const status = yield getPacketStatus({ agencyId, caregiverId });
-    const docs = yield getDownloadableDocuments(caregiverId, agencyId);
-    return Object.assign(Object.assign({}, status), { fileCount: docs.length, documents: docs.map((d) => {
-            var _a, _b;
-            return ({
-                _id: d._id,
-                title: d.title,
-                documentType: d.documentType,
-                reviewStatus: d.reviewStatus,
-                fileSize: (_a = d.fileSize) !== null && _a !== void 0 ? _a : null,
-                mimeType: (_b = d.mimeType) !== null && _b !== void 0 ? _b : null,
-                // The one field the paywall actually withholds.
-                url: status.paid ? d.url : null,
-                locked: !status.paid,
-            });
-        }) });
+    // Same set getDownloadableDocuments returns, kept in two steps so the
+    // credentials the tier gate holds back can be named below.
+    const confirmedAll = yield getConfirmedCredentials(caregiverId);
+    const docs = yield (0, credential_visibility_1.filterVisibleDocuments)(confirmedAll, agencyId, caregiverId);
+    // SCRUM-131 follow-on: "nothing to download" and "nothing submitted" are not
+    // the same thing. The packet ships confirmed credentials only, so a caregiver
+    // who has uploaded everything and is waiting on review was being reported to
+    // the agency as having submitted nothing at all — the same mistake SCRUM-129
+    // fixed on the credential card, surfacing again in the documents modal.
+    const pendingCount = yield documents_model_1.Documents.countDocuments({
+        user: caregiverId,
+        url: { $exists: true, $nin: [null, ''] },
+        documentType: { $in: credentials_1.REQUIRED_CREDENTIAL_KEYS },
+        reviewStatus: { $ne: 'approved' },
+    });
+    // SCRUM-135: confirmed credentials the packet is withholding from THIS agency.
+    // Today that is the SCRUM-99 tier gate — TB Test (and GCHEXS) are sensitive
+    // and stay hidden until WeVoro confirms the agency — but the list is derived
+    // by difference rather than by re-applying that rule, so any gate that drops a
+    // confirmed credential is reported the same way. Without it the modal showed
+    // four files and nothing else, and a confirmed TB Test looked like it had
+    // simply vanished from a paid packet.
+    const shown = new Set(docs.map((d) => String(d._id)));
+    const hiddenCredentials = confirmedAll
+        .filter((d) => !shown.has(String(d._id)))
+        .map((d) => d.title || d.documentType);
+    // SCRUM-141: what the caregiver signed for this agency — listed before
+    // payment so the agency knows the bundle holds both groups, links withheld.
+    const signed = yield getSignedDocuments(caregiverId, agencyId);
+    // Faisal's A9/A10 rows read "PDF · 1.4 MB", and a photo credential reads
+    // "JPEG · 2.1 MB" on a green badge. The type comes from the file name; the
+    // CDN is asked (HEAD, short timeout) only for what is not stored — the
+    // stamped signed file's size, or a credential uploaded before fileSize was
+    // recorded. The urls stay on the server either way.
+    const [docFiles, signedFiles] = yield Promise.all([
+        Promise.all(docs.map((d) => describeFile(d.url, d.fileSize))),
+        Promise.all(signed.map((d) => describeFile(d.url))),
+    ]);
+    return Object.assign(Object.assign({}, status), { 
+        // Checkout sells a packet only when it holds at least one confirmed
+        // credential (status.fileCount). The list below can still show a GCHEXS
+        // confirmation on its own, and the modal used to offer "Unlock" for that
+        // list, which checkout then refused. Say which it is.
+        purchasable: status.fileCount > 0, fileCount: docs.length, pendingCount,
+        hiddenCredentials, signedDocuments: signed.map((d, i) => ({
+            _id: d._id,
+            title: d.title,
+            signedAt: d.signedAt,
+            fileSize: signedFiles[i].fileSize,
+            fileType: signedFiles[i].fileType,
+            mimeType: signedFiles[i].mimeType,
+            locked: !status.paid,
+        })), documents: docs.map((d, i) => ({
+            _id: d._id,
+            title: d.title,
+            documentType: d.documentType,
+            // SCRUM-165: both halves of the PCA certificate are 'certifications'
+            // rows; `part` is what lets the package window label the sign-off.
+            part: d.part,
+            reviewStatus: d.reviewStatus,
+            fileSize: docFiles[i].fileSize,
+            // SCRUM-119 (A9): 'PDF', 'JPG', 'PNG'… — what the badge prints.
+            fileType: docFiles[i].fileType,
+            mimeType: docFiles[i].mimeType,
+            // The one field the paywall actually withholds.
+            url: status.paid ? d.url : null,
+            locked: !status.paid,
+        })) });
 });
 exports.DownloadService = {
     downloadDocument,
+    getConfirmedCredentials,
+    downloadSignedDocument,
     getDownloadPackage,
+    getDownloadPackageZip,
     getPacketManifest,
     requestPrivateAccess,
     updatePrivateAccess,
@@ -401,4 +775,5 @@ exports.DownloadService = {
     getDownloadAuditLog,
     hasDownloadAccess,
     getDownloadableDocuments,
+    getSignedDocuments,
 };

@@ -1,4 +1,4 @@
-import { REQUIRED_CREDENTIAL_KEYS } from '../constants/credentials';
+import { REQUIRED_CREDENTIAL_KEYS, isPrimaryCredentialRow } from '../constants/credentials';
 
 /**
  * Calculates pro profile completion percentage (0–100).
@@ -30,9 +30,16 @@ export function calculateProCompletion(
   if (personalInfo && Object.keys(personalInfo).length > 0) score += 25;
   if (professionalInfo && Object.keys(professionalInfo).length > 0) score += 25;
 
+  // SCRUM-165: the RN/LPN practical sign-off is a second 'certifications' row.
+  // Mapped by type alone it could stand in for the certificate, so a PCA who
+  // uploaded only the sign-off scored the certificate as uploaded and could
+  // reach 100% with no written exam on file. It contributes nothing here: the
+  // primary row (written exam or legacy certificate) alone scores the 10%.
   const docsByType: Record<string, any> = {};
   (documents ?? []).forEach((doc: any) => {
-    if (doc?.documentType) docsByType[doc.documentType] = doc;
+    if (doc?.documentType && isPrimaryCredentialRow(doc)) {
+      docsByType[doc.documentType] = doc;
+    }
   });
 
   // 50% split evenly across the required credentials, half for uploading and

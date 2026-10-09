@@ -1,5 +1,6 @@
 import httpStatus from 'http-status';
 import Stripe from 'stripe';
+import { createHash } from 'crypto';
 import config from '../../../config';
 import ApiError from '../../../errors/ApiError';
 import { PacketTransaction } from '../pricing/pricing.model';
@@ -9,6 +10,8 @@ import { ProfessionalInfo } from '../user/professional-info.model';
 import { Documents } from '../document/documents.model';
 import { User } from '../user/user.model';
 import { ENUM_USER_ROLE } from '../../../enums/user';
+import { REQUIRED_CREDENTIAL_KEYS } from '../../../constants/credentials';
+import { publicSiteUrl } from '../../middlewares/site-context';
 
 /**
  * SCRUM-115: Stripe payments for credential packets.
@@ -22,11 +25,12 @@ import { ENUM_USER_ROLE } from '../../../enums/user';
  *  3. price_charged is locked onto the transaction when the intent is created
  *     and never recalculated, so a later price change cannot rewrite history.
  *
- * Payment is deliberately independent of e-signature status (AC #6) — nothing
- * here reads or waits on a signature packet.
+ * SCRUM-141: payment now waits on the caregiver's response. Checkout refuses
+ * until the caregiver has signed what the agency sent (or responded, when there
+ * was nothing to sign) — see onboarding.service.
  */
 
-const stripeClient = (): Stripe | null => {
+export const stripeClient = (): Stripe | null => {
   const key = config.stripe.secret_key;
   if (!key) return null;
   return new Stripe(key, { apiVersion: '2025-10-29.clover' as any });
@@ -37,8 +41,7 @@ const stripeClient = (): Stripe | null => {
  * config.frontend_url — that value is a leftover pointing at a different
  * product. Same APP_PUBLIC_URL the credential emails use.
  */
-const appUrl = (): string =>
-  (process.env.APP_PUBLIC_URL || 'https://wevoro.com').replace(/\/+$/, '');
+const appUrl = (): string => publicSiteUrl();
 
 /**
  * The site to send the agency back to after Stripe.
@@ -109,12 +112,29 @@ const displayName = async (userId: string): Promise<string> => {
   return (info as any)?.companyName || person || 'A WeVoro user';
 };
 
+/**
+ * SCRUM-194: how long a paid packet stays open. Thirty days from payment, then
+ * the agency pays again for the current credentials.
+ *
+ * The 9/30 dev sync settled this. An earlier draft of the ticket froze the
+ * packet at the moment of payment and closed it after seven days or one
+ * download; that is gone. Inside the window the agency sees the packet live,
+ * so a credential the caregiver replaces on day 12 is theirs at no extra
+ * charge (and SCRUM-210 tells them it changed). After the window the packet
+ * closes and later changes are invisible to that agency.
+ */
+export const ACCESS_WINDOW_DAYS = 30;
+
 /** The paid entitlement for this pair, if one exists. */
 export const findEntitlement = async (agencyId: string, caregiverId: string) =>
   PacketTransaction.findOne({
     agency: agencyId,
     caregiver: caregiverId,
     status: 'paid',
+    // SCRUM-194: a payment opens the packet for ACCESS_WINDOW_DAYS, no longer
+    // for ever. Rows paid before this shipped carry no accessEndsAt and stay
+    // open — nobody loses access they were sold under the old promise.
+    $or: [{ accessEndsAt: { $exists: false } }, { accessEndsAt: { $gt: new Date() } }],
   });
 
 /** Has this agency already paid for this caregiver's packet? */
@@ -125,16 +145,16 @@ export const hasEntitlement = async (
 
 /**
  * What the agency should see before paying: the price, whether they already own
- * this packet, and how many files it holds.
- *
- * Never gated on e-signature — a caregiver mid-signature must not block a sale.
+ * this packet, how many files it holds, and (SCRUM-141) whether the caregiver
+ * has responded to the agency's onboarding yet — payment waits on that.
  */
 export const getPacketStatus = async (params: {
   agencyId: string;
   caregiverId: string;
 }) => {
   const { agencyId, caregiverId } = params;
-  const [priceCents, entitlement, caregiverName, info, prof] = await Promise.all([
+  const { getOnboardStatus } = await import('../offer/onboarding.service');
+  const [priceCents, entitlement, caregiverName, info, prof, onboard] = await Promise.all([
     getCurrentPriceCents(),
     findEntitlement(agencyId, caregiverId),
     displayName(caregiverId),
@@ -144,6 +164,7 @@ export const getPacketStatus = async (params: {
     // thing instead of a half-filled card.
     PersonalInfo.findOne({ user: caregiverId }).select('image address'),
     ProfessionalInfo.findOne({ user: caregiverId }).select('role'),
+    getOnboardStatus(agencyId, caregiverId),
   ]);
 
   // The design shows "{name} · N files" under the packet line, so the agency
@@ -155,9 +176,19 @@ export const getPacketStatus = async (params: {
   // download actually releases. A raw count ignored the sensitive-credential
   // tier gate, so an un-Confirmed agency was quoted files it would never
   // receive — "4 files" on the buy screen, 2 in the delivered package.
+  //
+  // SCRUM-131: and counted from the confirmed set only, because the package now
+  // ships confirmed credentials alone. Quoting the raw upload count promised
+  // files the download would never hand over.
+  //
+  // Credentials only — supporting documents are not part of the packet. This
+  // must stay in step with getDownloadableDocuments, or the buy screen quotes
+  // files the ZIP leaves out.
   const allDocs = await Documents.find({
     user: caregiverId,
     url: { $exists: true, $nin: [null, ''] },
+    documentType: { $in: REQUIRED_CREDENTIAL_KEYS as unknown as string[] },
+    reviewStatus: 'approved',
   });
   const { filterVisibleDocuments } = await import(
     '../document/credential-visibility'
@@ -181,6 +212,12 @@ export const getPacketStatus = async (params: {
     paid: !!entitlement,
     paidAt: entitlement?.paidAt ?? null,
     transactionId: entitlement?._id ?? null,
+    // SCRUM-142: what the success screen says about the receipt.
+    receiptNumber: entitlement?.receiptNumber ?? null,
+    receiptEmailSentAt: entitlement?.receiptEmailSentAt ?? null,
+    receiptSentTo: entitlement?.receiptSentTo ?? null,
+    // SCRUM-141: the signature gate. Checkout refuses until this is 'submitted'.
+    onboard,
     stripeConfigured: isStripeConfigured(),
     testMode: isTestMode(),
   };
@@ -224,6 +261,29 @@ export const createCheckout = async (params: {
       clientSecret: null,
       testMode: isTestMode(),
     };
+  }
+
+  // SCRUM-141: the caregiver must respond (sign what the agency sent) before
+  // the agency can pay. Without this gate a caregiver's credentials could be
+  // bought by any agency that found the profile, with no consent at all.
+  const { hasCaregiverSubmitted } = await import('../offer/onboarding.service');
+  if (!(await hasCaregiverSubmitted(agencyId, caregiverId))) {
+    throw new ApiError(
+      httpStatus.CONFLICT,
+      'This caregiver has not responded to your onboarding yet. You can pay and download once they have signed and submitted.'
+    );
+  }
+
+  // SCRUM-131: a packet with nothing confirmed in it is not a product. Now that
+  // the package ships confirmed credentials only, a caregiver whose credentials
+  // are all still Pending would otherwise sell a $49.99 download containing
+  // nothing at all. Refuse before Stripe is ever called.
+  const { fileCount } = await getPacketStatus({ agencyId, caregiverId });
+  if (!fileCount) {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      'This caregiver has no confirmed credentials yet, so there is nothing to download. The packet can be bought once WeVoro has confirmed at least one credential.'
+    );
   }
 
   const priceCents = await getCurrentPriceCents();
@@ -285,7 +345,7 @@ export const createCheckout = async (params: {
     );
   }
 
-  const returnTo = `${returnBase(params.returnOrigin)}/partner/pros/${caregiverId}`;
+  const returnTo = `${returnBase(params.returnOrigin)}/agency/caregivers/${caregiverId}`;
 
   // Reuse an open session so a retry does not stack checkout pages, and so
   // returning to the gate lands the agency back on the page they left. A session
@@ -296,6 +356,10 @@ export const createCheckout = async (params: {
       const existing = await stripe.checkout.sessions.retrieve(
         transaction.stripeCheckoutSessionId
       );
+      // SCRUM-134 (revised 2026-09-16): checkout is the full-page Stripe page
+      // again, so only a hosted session with a url back to this same site can be
+      // reused. An embedded session left over from the brief modal build has no
+      // url and falls through, so a hosted one is created for the transaction.
       if (
         existing.status === 'open' &&
         existing.url &&
@@ -310,56 +374,66 @@ export const createCheckout = async (params: {
 
   if (!session) {
     const caregiverName = await displayName(caregiverId);
-    session = await stripe.checkout.sessions.create(
-      {
-        mode: 'payment',
-        line_items: [
-          {
-            quantity: 1,
-            price_data: {
-              currency: transaction.currency || 'usd',
-              unit_amount: transaction.priceChargedCents,
-              product_data: {
-                name: `${caregiverName} — credential packet`,
-                description:
-                  'One-time purchase. Includes e-signature tracking and free re-downloads.',
-                tax_code: PACKET_TAX_CODE,
-              },
+    const sessionParams: Stripe.Checkout.SessionCreateParams = {
+      mode: 'payment',
+      // SCRUM-134, revised 2026-09-16: the client chose to keep the full-page
+      // Stripe Checkout redirect for its more professional appearance, and
+      // amended SCRUM-119's "embedded, not a redirect". So this is a hosted
+      // session again; the ticket's remaining fix is the back button, which
+      // is handled on the frontend.
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: transaction.currency || 'usd',
+            unit_amount: transaction.priceChargedCents,
+            product_data: {
+              name: `${caregiverName} — credential packet`,
+              description:
+                // SCRUM-194: the Stripe checkout page carried the same
+                // "re-downloads are free" promise the receipt did, which is the
+                // one place the agency reads it BEFORE paying.
+                `Credential documents and signed documents, as one ZIP. ${ACCESS_WINDOW_DAYS} days of access from payment, including any credential the caregiver updates in that time.`,
+              tax_code: PACKET_TAX_CODE,
             },
           },
-        ],
-        // Both carry the id: the session for checkout.session.completed, the
-        // intent for the payment_intent.* events, so whichever arrives first
-        // can settle the transaction.
+        },
+      ],
+      // Both carry the id: the session for checkout.session.completed, the
+      // intent for the payment_intent.* events, so whichever arrives first
+      // can settle the transaction.
+      metadata: {
+        transactionId: String(transaction._id),
+        agencyId: String(agencyId),
+        caregiverId: String(caregiverId),
+        product: 'credential_packet',
+      },
+      payment_intent_data: {
         metadata: {
           transactionId: String(transaction._id),
           agencyId: String(agencyId),
           caregiverId: String(caregiverId),
           product: 'credential_packet',
         },
-        payment_intent_data: {
-          metadata: {
-            transactionId: String(transaction._id),
-            agencyId: String(agencyId),
-            caregiverId: String(caregiverId),
-            product: 'credential_packet',
-          },
-        },
-        success_url: `${returnTo}?payment=success&tx=${transaction._id}`,
-        cancel_url: `${returnTo}?payment=cancelled&tx=${transaction._id}`,
       },
-      // Stripe-side idempotency: the same transaction never yields two checkout
-      // sessions even if this endpoint is called twice concurrently. The price
-      // is part of the key because Stripe rejects a reused key whose parameters
-      // have changed — after a re-price above, the same transaction legitimately
-      // needs a second session for the new amount. The return site is in it for
-      // the same reason: QA and production sessions carry different URLs.
-      {
-        idempotencyKey: `packet_cs_${transaction._id}_${transaction.priceChargedCents}_${
-          new URL(returnTo).host
-        }`,
-      }
-    ).catch(checkoutRefused);
+      success_url: `${returnTo}?payment=success&tx=${transaction._id}`,
+      cancel_url: `${returnTo}?payment=cancelled&tx=${transaction._id}`,
+    };
+    // Stripe-side idempotency: the same request never yields two checkout
+    // sessions, even if this endpoint is called twice at once. Stripe refuses a
+    // reused key whose parameters differ (keys live 24 hours), so the key is
+    // derived from the parameters themselves. It used to be built from a
+    // hand-picked few (transaction, price, host), and any other change failed
+    // checkout outright for a day: the SCRUM-144 move of the return page to
+    // /agency/caregivers did exactly that, and so would a caregiver renaming
+    // themselves, since their name is in the line item.
+    const paramsHash = createHash('sha256')
+      .update(JSON.stringify(sessionParams))
+      .digest('hex')
+      .slice(0, 24);
+    session = await stripe.checkout.sessions.create(sessionParams, {
+      idempotencyKey: `packet_cs_${transaction._id}_${paramsHash}`,
+    }).catch(checkoutRefused);
     transaction.stripeCheckoutSessionId = session.id;
     if (typeof session.payment_intent === 'string') {
       transaction.stripePaymentIntentId = session.payment_intent;
@@ -372,8 +446,7 @@ export const createCheckout = async (params: {
     transactionId: String(transaction._id),
     priceCents: transaction.priceChargedCents,
     currency: transaction.currency,
-    // The agency is sent to Stripe's own page rather than typing a card into a
-    // modal on our site.
+    // The agency is sent to Stripe's own page (SCRUM-134, revised).
     checkoutUrl: session.url,
     testMode: false,
   };
@@ -403,10 +476,35 @@ export const markPaid = async (params: {
     transaction.status = 'paid';
     transaction.paidAt = new Date();
     transaction.failureMessage = undefined;
+
+    /*
+     * SCRUM-194: start the 30-day window. Set here, inside the "first time this
+     * becomes paid" branch, so a repeated webhook cannot extend it.
+     *
+     * Nothing is frozen. The packet stays live for the whole window, which is
+     * what the 9/30 sync decided: a credential the caregiver replaces on day 12
+     * is included at no extra charge.
+     */
+    transaction.accessEndsAt = new Date(
+      transaction.paidAt.getTime() + ACCESS_WINDOW_DAYS * 24 * 60 * 60 * 1000
+    );
   }
   if (paymentIntentId) transaction.stripePaymentIntentId = paymentIntentId;
   if (eventId) transaction.stripeEventIds = [...(transaction.stripeEventIds || []), eventId];
   await transaction.save();
+
+  // SCRUM-142: WeVoro's own receipt, emailed once and stored on the row
+  // (SCRUM-143). Awaited, because a serverless function is frozen the moment
+  // the response is sent; best-effort, because a mail failure must never undo
+  // or hide a payment that went through.
+  if (transaction.status === 'paid' && !transaction.receiptEmailSentAt) {
+    try {
+      const { sendPacketReceipt } = await import('./receipt.service');
+      await sendPacketReceipt(String(transaction._id));
+    } catch (err: any) {
+      console.error('[payment] receipt failed for', String(transaction._id), err?.message);
+    }
+  }
   return transaction;
 };
 

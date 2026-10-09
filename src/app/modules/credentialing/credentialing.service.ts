@@ -6,6 +6,7 @@ import { ProfessionalInfo } from '../user/professional-info.model';
 import { Notification } from '../user/notification.model';
 import { User } from '../user/user.model';
 import { ENUM_USER_ROLE } from '../../../enums/user';
+import { getShareGateSummary } from '../notification/share-unlock.service';
 
 /**
  * SCRUM-87/88: Credentialing-mode engagement service.
@@ -64,7 +65,7 @@ const recordEngagement = async (
     user: caregiverId,
     message: `<strong>${agencyName}</strong> onboarded to WeVoro via your share link.`,
     type: 'agency_onboarded',
-    ctaLink: '/pro/offers?tab=submitted',
+    ctaLink: '/caregiver/offers?tab=submitted',
     isRead: false,
   });
 
@@ -74,7 +75,9 @@ const recordEngagement = async (
 /**
  * SCRUM-122: resolve a share link to its caregiver. Links carry the caregiver's
  * shareId; caregivers created before shareId existed were shared by _id, so fall
- * back to that, as getUserByShareId does. Only a caregiver account counts.
+ * back to that, as getUserByShareId does. Only a caregiver account counts — and
+ * SCRUM-133: only while the link is unlocked (all 5 required credentials
+ * Confirmed), the same rule GET /user/share/:shareId applies.
  */
 const caregiverFromShare = async (shareId?: string): Promise<string | null> => {
   if (!shareId) return null;
@@ -82,9 +85,9 @@ const caregiverFromShare = async (shareId?: string): Promise<string | null> => {
   if (!caregiver && mongoose.Types.ObjectId.isValid(shareId)) {
     caregiver = await User.findById(shareId).select('_id role').lean();
   }
-  return caregiver && caregiver.role === ENUM_USER_ROLE.PRO
-    ? String(caregiver._id)
-    : null;
+  if (!caregiver || caregiver.role !== ENUM_USER_ROLE.PRO) return null;
+  const gate = await getShareGateSummary(caregiver._id);
+  return gate.unlocked ? String(caregiver._id) : null;
 };
 
 /**
@@ -134,7 +137,7 @@ const notifyCredentialsDownloaded = async (
     user: caregiverId,
     message: `<strong>${agencyName || 'An agency'}</strong> downloaded your credentials.`,
     type: 'credentials_downloaded',
-    ctaLink: '/pro/offers?tab=received',
+    ctaLink: '/caregiver/offers?tab=received',
     isRead: false,
   });
 };
@@ -267,9 +270,64 @@ const getAgencyEngagements = async (
     if (d._id) downloadedMap.set(d._id.toString(), d.latest);
   });
 
-  const caregiverIds = Array.from(
-    new Set<string>([...onboardedMap.keys(), ...downloadedMap.keys()])
+  // SCRUM-141: caregivers the agency onboarded with the Onboard button belong
+  // here too, whether or not they arrived through a share link — and every
+  // entry carries its onboard state, so the tab can show "waiting on
+  // signature" instead of a download the server would refuse.
+  const { getOnboardStatuses } = await import('../offer/onboarding.service');
+  const onboardAll = await getOnboardStatuses(agencyId);
+  onboardAll.forEach((st, caregiverId) => {
+    if (!onboardedMap.has(caregiverId) && st.onboardedAt) {
+      onboardedMap.set(caregiverId, st.onboardedAt);
+    }
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { PacketTransaction } = require('../pricing/pricing.model');
+  const paidRows = await PacketTransaction.find({
+    agency: agencyId,
+    status: 'paid',
+  })
+    .select('caregiver priceChargedCents paidAt')
+    .lean();
+  const paidSet = new Set<string>(paidRows.map((r: any) => String(r.caregiver)));
+
+  // SCRUM-141: the onboard state now counts Onboard offers only, so a packet
+  // bought through a scheduling-era offer reads 'none' and no longer brings
+  // its caregiver into the list by itself. A paid packet is still the agency's
+  // to re-download — the entitlement wins — so every paid caregiver is listed
+  // (under Completed, "Download again") whatever the onboard state says.
+  const candidateIds = Array.from(
+    new Set<string>([
+      ...onboardedMap.keys(),
+      ...downloadedMap.keys(),
+      ...paidSet,
+    ])
   );
+  // SCRUM-162: only caregivers whose account still exists. Offers, paid
+  // packets and download audits outlive a deleted account (the audit on
+  // purpose), and this list used to be built from them alone — so a caregiver
+  // who deleted their account stayed on the tab as a "Caregiver" placeholder
+  // with a Download button that led to the agency's own profile.
+  const liveUsers = await User.find({
+    _id: { $in: candidateIds },
+    role: ENUM_USER_ROLE.PRO,
+  })
+    .select('_id')
+    .lean();
+  const live = new Set<string>(liveUsers.map((u: any) => String(u._id)));
+  const caregiverIds = candidateIds.filter((id) => live.has(id));
+  // SCRUM-141 (B3): the list's download button carries the price, as on the
+  // profile. A paid packet keeps the price it was bought at.
+  const paidPrice = new Map<string, number>();
+  const paidAtMap = new Map<string, Date>();
+  paidRows.forEach((r: any) => {
+    paidPrice.set(String(r.caregiver), r.priceChargedCents);
+    if (r.paidAt) paidAtMap.set(String(r.caregiver), r.paidAt);
+  });
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { getCurrentPriceCents } = require('../pricing/pricing.service');
+  const currentPriceCents: number | null = await getCurrentPriceCents().catch(() => null);
 
   const [infos, profInfos] = await Promise.all([
     PersonalInfo.find({ user: { $in: caregiverIds } }).lean(),
@@ -284,6 +342,21 @@ const getAgencyEngagements = async (
     if (p.role) roleMap.set(p.user.toString(), p.role);
   });
 
+  // A8a: before the caregiver responds there is no packet yet, so the row
+  // lists what will be sent — the agency's active documents for that role.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { SigningDocument } = require('../esign/esign.model');
+  const activeDocs: any[] = await SigningDocument.find({
+    agency: agencyId,
+    status: 'active',
+  })
+    .select('title role')
+    .lean();
+  const docsForRole = (role?: string | null) =>
+    activeDocs
+      .filter((d) => d.role === (role || 'CNA'))
+      .map((d) => ({ title: d.title, signed: false }));
+
   const received: any[] = [];
   const submitted: any[] = [];
 
@@ -297,7 +370,15 @@ const getAgencyEngagements = async (
       role: roleMap.get(caregiverId) || null,
       onboardedAt: onboardedMap.get(caregiverId) || null,
       downloadedAt,
+      onboard: onboardAll.get(caregiverId) ?? { state: 'none' },
+      paid: paidSet.has(caregiverId),
+      paidAt: paidAtMap.get(caregiverId) ?? null,
+      priceCents: paidPrice.get(caregiverId) ?? currentPriceCents,
     };
+    const ob: any = entry.onboard;
+    if (ob.state === 'awaiting' && !(ob.documents ?? []).length) {
+      entry.onboard = { ...ob, documents: docsForRole(entry.role) };
+    }
     if (downloadedAt) received.push(entry);
     else submitted.push(entry);
   }

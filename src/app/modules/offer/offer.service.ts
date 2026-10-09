@@ -15,40 +15,106 @@ import { ProfessionalInfo } from '../user/professional-info.model';
 import { sendOfferReceivedEmail } from '../esign/esign-email.service';
 import { sendEmail } from '../auth/sendMail';
 
+const ADMIN_ROLES = ['admin', 'super_admin'];
+
+/**
+ * SCRUM-141: what each side may write through the generic offer endpoints
+ * (PATCH /offer/update/:id, POST /offer). Both used to hand the raw request
+ * body to Mongo, which let an agency forge the caregiver's consent: PATCH
+ * {source:'onboard'} onto a scheduling-era offer that already carried a
+ * submittedAt, PATCH {submittedAt} onto its own pending Onboard offer, PATCH
+ * {partner} to take over another agency's submitted offer, or POST
+ * {pro, source:'onboard', submittedAt} to create a "submitted" offer in one
+ * call — each one unlocking checkout and download with no Respond.
+ *
+ * So these lists are allow-lists, and four fields are on none of them:
+ * `source` (only onboardCaregiver writes 'onboard'), `submittedAt` (only
+ * markOfferSubmitted writes it), and `partner` / `pro` (who the offer is
+ * between never changes after it is created).
+ */
+const OFFER_UPDATE_RULES: Record<string, { fields: string[]; statuses: string[] }> = {
+  // The caregiver: Accept, Not interested / Remove / Withdraw, with a note.
+  pro: { fields: ['status', 'notes', 'isRemovedByPro'], statuses: ['accepted', 'rejected'] },
+  // The agency: Confirm (legacy "onboarded"), and editing what it asked for.
+  partner: {
+    fields: ['status', 'notes', 'documentsNeeded', 'jobLink'],
+    statuses: ['onboarded'],
+  },
+};
+// What the agency's offer form (offer-request-modal) sends; status is not one
+// of them — a new offer always starts 'pending'.
+const OFFER_FORM_FIELDS = ['jobLink', 'documentsNeeded', 'notes'];
+
+const pickOfferFields = (payload: any, fields: string[]): Record<string, unknown> => {
+  const picked: Record<string, unknown> = {};
+  for (const key of fields) {
+    if (payload && Object.prototype.hasOwnProperty.call(payload, key) && payload[key] !== undefined) {
+      picked[key] = payload[key];
+    }
+  }
+  return picked;
+};
+
+/**
+ * Only the offer's own agency or caregiver (or an admin) may act on it. None of
+ * the generic offer endpoints checked this, so any signed-in agency or
+ * caregiver could change any offer by its id.
+ */
+const assertOfferParty = (offer: any, user: Partial<IUser>) => {
+  if (ADMIN_ROLES.includes(String(user.role))) return;
+  const side =
+    user.role === 'partner' ? offer?.partner : user.role === 'pro' ? offer?.pro : null;
+  if (!side || String(side) !== String(user._id)) {
+    throw new ApiError(httpStatus.FORBIDDEN, 'This offer is not yours');
+  }
+};
+
 const createOrUpdateOffer = async (
   payload: any,
   user: Partial<IUser>
 ): Promise<any> => {
-  // Ensure the payload has the partner ID
-  payload.partner = user._id;
   console.log('🚀 ~ createOrUpdateOffer ~ payload:', payload);
+  // SCRUM-141: only the form's own fields are written; the partner is always
+  // the caller (see OFFER_UPDATE_RULES for why source/submittedAt never are).
+  const fields = pickOfferFields(payload, OFFER_FORM_FIELDS);
 
   const isUpdate = !!payload?.offer;
   let result;
 
   // Check if `payload.offer` exists to differentiate between update and create
   if (isUpdate) {
-    // Try updating the document
-    result = await Offer.findByIdAndUpdate(payload.offer, payload, {
+    // Editing an offer is its own agency's business. This used to upsert by id
+    // with no owner check and set partner to the caller, so any agency could
+    // take over another agency's offer — and the caregiver's consent on it.
+    const existing = await Offer.findById(payload.offer).select('partner');
+    if (existing) assertOfferParty(existing, user);
+    // $setOnInsert only applies if the offer no longer exists and is recreated.
+    const onInsert: any = { partner: user._id };
+    if (payload.pro) onInsert.pro = payload.pro;
+    const update: any = { $setOnInsert: onInsert };
+    if (Object.keys(fields).length) update.$set = fields;
+    result = await Offer.findByIdAndUpdate(payload.offer, update, {
       new: true, // Return the updated document
       upsert: true, // Create a new document if it doesn't exist
       setDefaultsOnInsert: true, // Ensure default values are set
     }).populate('documentsNeeded.document');
   } else {
     // If no `offer` ID is provided, create a new document explicitly
-    const newOffer = new Offer(payload);
+    const newOffer = new Offer({ ...fields, partner: user._id, pro: payload.pro });
     result = await newOffer.save();
     await result.populate('documentsNeeded.document');
   }
 
-  // Send notification to the Pro user
+  // Send notification to the Pro user — the offer's own caregiver, not
+  // whatever `pro` an update request carried.
+  const proId = result?.pro ?? payload.pro;
   try {
     // Get partner's company name
     const partnerInfo = await PersonalInfo.findOne({ user: user._id });
-    const companyName = partnerInfo?.companyName || 'A partner';
+    const companyName = partnerInfo?.companyName || 'An agency';
 
     // Get pro user's email
-    const proUser = await User.findById(payload.pro);
+    const proUser = await User.findById(proId);
     const proEmail = proUser?.email;
 
     // Create notification message
@@ -58,7 +124,7 @@ const createOrUpdateOffer = async (
 
     // Create notification in database
     const notification = await Notification.create({
-      user: payload.pro,
+      user: proId,
       message,
     });
     console.log(
@@ -71,14 +137,14 @@ const createOrUpdateOffer = async (
     // caregiver's role would have to sign with this agency (0 hides the line).
     if (proEmail) {
       const proRole =
-        (await ProfessionalInfo.findOne({ user: payload.pro }).select('role'))?.role || 'CNA';
+        (await ProfessionalInfo.findOne({ user: proId }).select('role'))?.role || 'CNA';
       const signCount = await SigningDocument.countDocuments({
         agency: user._id,
         role: proRole,
         status: 'active',
       });
       await sendOfferReceivedEmail({
-        caregiverId: String(payload.pro),
+        caregiverId: String(proId),
         agencyName: companyName,
         signCount,
       });
@@ -175,11 +241,40 @@ const getOffers = async (user: Partial<IUser>): Promise<any> => {
         documentsNeeded: 1,
         status: 1,
         jobLink: 1,
+        source: 1,
+        submittedAt: 1,
         createdAt: 1,
         updatedAt: 1,
       },
     },
   ]);
+
+  // SCRUM-141: resolve when each offer was submitted (signed, or responded with
+  // nothing to sign), so the caregiver's card can show "Submitted" with its
+  // time instead of an action.
+  if (result.length) {
+    const { SignaturePacket } = await import('../esign/esign.model');
+    const { resolveSubmittedAt } = await import('./onboarding.service');
+    const packets = await SignaturePacket.find({
+      offer: { $in: result.map((o: any) => o._id) },
+    })
+      .select('offer status completedAt updatedAt items.status')
+      .lean();
+    const byOffer = new Map<string, any>();
+    packets.forEach((p: any) => byOffer.set(String(p.offer), p));
+    for (const offer of result) {
+      const packet = byOffer.get(String(offer._id));
+      offer.submittedAt = resolveSubmittedAt(offer, packet);
+      offer.signing = packet
+        ? {
+            status: packet.status,
+            pendingCount: ((packet.items as any[]) ?? []).filter(
+              (i) => i.status === 'pending'
+            ).length,
+          }
+        : null;
+    }
+  }
 
   // Post-process: Populate document references in documentsNeeded
   // OPTIMIZED: Single batch query for all documents across all offers
@@ -246,17 +341,47 @@ const getOffers = async (user: Partial<IUser>): Promise<any> => {
   return result;
 };
 
-const deleteOffer = async (id: string): Promise<any> => {
+const deleteOffer = async (id: string, user: Partial<IUser>): Promise<any> => {
+  // SCRUM-141: deleting an offer deletes the consent it carries. With no owner
+  // check any agency could delete another agency's submitted Onboard offer by
+  // its id and wipe that agency's signature gate — the same hole
+  // assertOfferParty closed on update.
+  const existing = await Offer.findById(id).select('partner pro');
+  if (!existing) return existing;
+  assertOfferParty(existing, user);
   const result = await Offer.findByIdAndDelete(id);
   return result;
 };
 
 const updateOffer = async (
   id: string,
-  payload: any,
+  rawPayload: any,
   user: Partial<IUser>
 ): Promise<any> => {
-  const result = await Offer.findByIdAndUpdate(id, payload, { new: true });
+  const existing = await Offer.findById(id).select('partner pro');
+  if (!existing) return existing;
+  assertOfferParty(existing, user);
+
+  // SCRUM-141: each side writes only its own fields and statuses, never
+  // source, submittedAt, partner or pro (see OFFER_UPDATE_RULES). An admin may
+  // do what either side can, and no more.
+  const isAdmin = ADMIN_ROLES.includes(String(user.role));
+  const rules = isAdmin
+    ? {
+        fields: Array.from(
+          new Set([...OFFER_UPDATE_RULES.pro.fields, ...OFFER_UPDATE_RULES.partner.fields])
+        ),
+        statuses: [...OFFER_UPDATE_RULES.pro.statuses, ...OFFER_UPDATE_RULES.partner.statuses],
+      }
+    : OFFER_UPDATE_RULES[String(user.role)];
+  const payload: any = pickOfferFields(rawPayload, rules.fields);
+  if (payload.status !== undefined && !rules.statuses.includes(payload.status)) {
+    throw new ApiError(httpStatus.BAD_REQUEST, `You cannot set this offer to '${payload.status}'`);
+  }
+
+  const result = Object.keys(payload).length
+    ? await Offer.findByIdAndUpdate(id, { $set: payload }, { new: true })
+    : await Offer.findById(id);
 
   if (!result) return result;
 
@@ -275,7 +400,7 @@ const updateOffer = async (
       // Include notes if provided
       const notesText =
         payload.notes?.length > 0
-          ? `<p><strong>Pro's note:</strong> ${
+          ? `<p><strong>Caregiver's note:</strong> ${
               payload.notes[payload.notes.length - 1]?.note || ''
             }</p>`
           : '';
@@ -302,7 +427,7 @@ const updateOffer = async (
 
     // Partner confirming onboarding - notify Pro
     if (payload.status === 'onboarded') {
-      const companyName = userInfo?.companyName || 'The partner';
+      const companyName = userInfo?.companyName || 'The agency';
       const proUser = await User.findById(result.pro);
       const proEmail = proUser?.email;
 
@@ -333,6 +458,11 @@ const updateOfferNotes = async (
   payload: any,
   user: Partial<IUser>
 ): Promise<any> => {
+  // Only the pair on the offer may write on it — a note emails the other side.
+  const existing = await Offer.findById(id).select('partner pro');
+  if (!existing) return existing;
+  assertOfferParty(existing, user);
+
   const result = await Offer.findByIdAndUpdate(
     id,
     { $push: { notes: payload } },
@@ -349,9 +479,9 @@ const updateOfferNotes = async (
     // Determine recipient and message
     const recipientId = isPartner ? result.pro : result.partner;
     const senderName = isPartner
-      ? userInfo?.companyName || 'A partner'
+      ? userInfo?.companyName || 'An agency'
       : `${userInfo?.firstName || ''} ${userInfo?.lastName || ''}`.trim() ||
-        'A pro';
+        'A caregiver';
 
     const message = `<p><span style="font-weight: 600; color: #008000;">${senderName}</span> has added a note to your offer.</p>`;
 
@@ -380,7 +510,19 @@ const updateOfferNotes = async (
   return result;
 };
 
-const uploadOfferDocuments = async (files: any, id: string): Promise<any> => {
+const uploadOfferDocuments = async (
+  files: any,
+  id: string,
+  user: Partial<IUser>
+): Promise<any> => {
+  // SCRUM-141: only the caregiver the offer was sent to (or an admin) may
+  // answer it. Checked before any file goes to the CDN.
+  const owner = await Offer.findById(id).select('partner pro');
+  if (!owner) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Offer not found');
+  }
+  assertOfferParty(owner, user);
+
   const fileMap: any = {};
   if (files.length > 0) {
     for (const file of files) {
@@ -420,6 +562,8 @@ const updateDocumentStatus = async (
   if (!offer) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Offer not found');
   }
+  // Granting or denying access is the offer's own caregiver's call.
+  assertOfferParty(offer, user);
 
   // Find the document in documentsNeeded array and update its status
   const docIndex = offer.documentsNeeded.findIndex(
@@ -445,7 +589,7 @@ const updateDocumentStatus = async (
     const proInfo = await PersonalInfo.findOne({ user: user._id });
     const proName = proInfo
       ? `${proInfo.firstName} ${proInfo.lastName}`
-      : 'The pro';
+      : 'The caregiver';
 
     const docTitle = offer.documentsNeeded[docIndex].title;
     const partner = await User.findById(offer.partner);
@@ -486,6 +630,15 @@ const proRespondToOffer = async (
   const offer = await Offer.findById(offerId);
   if (!offer) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Offer not found');
+  }
+  // Only the caregiver the offer was sent to can answer it. Nothing checked
+  // this, so any signed-in caregiver could respond to someone else's offer —
+  // and since SCRUM-141 a response is what lets an agency buy the credentials.
+  if (!['admin', 'super_admin'].includes(String(user.role)) && String(offer.pro) !== String(user._id)) {
+    throw new ApiError(httpStatus.FORBIDDEN, 'This offer was not sent to you');
+  }
+  if (offer.status === 'rejected') {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'You declined this offer');
   }
 
   const uploadedDocs: string[] = [];
@@ -545,14 +698,28 @@ const proRespondToOffer = async (
   // packet for this caregiver's role (no-op when the agency has no signing
   // documents; idempotent when the packet already exists). Server-side so a
   // closed browser between Step 1 and Step 2 still starts the reminder clock.
+  let packet: any = null;
+  let packetFailed = false;
   try {
-    await startPacket({
+    packet = await startPacket({
       offerId: String(offer._id),
       agencyId: String(offer.partner),
       caregiverId: String(offer.pro),
     });
   } catch (e) {
+    packetFailed = true;
     console.error('[esign] packet creation failed for offer', String(offer._id), e);
+  }
+
+  // SCRUM-141: with nothing to sign, responding IS submitting — mark it and
+  // tell the agency. With documents to sign, that happens when the last one is
+  // signed (esign.service signItem). A packet that failed to start is not a
+  // response: the caregiver has to be able to sign before it counts. Only an
+  // onboard offer is marked — markOfferSubmitted ignores a scheduling-era job
+  // offer, which is not consent to release the package.
+  if (!packetFailed && (!packet || packet.status === 'completed')) {
+    const { markOfferSubmitted } = await import('./onboarding.service');
+    await markOfferSubmitted({ offerId: String(offer._id) });
   }
 
   // 5. Send consolidated notification to partner
@@ -560,7 +727,7 @@ const proRespondToOffer = async (
     const proInfo = await PersonalInfo.findOne({ user: user._id });
     const proName = proInfo
       ? `${proInfo.firstName} ${proInfo.lastName}`
-      : 'The pro';
+      : 'The caregiver';
 
     const partner = await User.findById(offer.partner);
 
@@ -593,7 +760,7 @@ const proRespondToOffer = async (
       if (partner?.email) {
         await sendEmail(
           partner.email,
-          'Pro Responded to Your Offer',
+          'Caregiver Responded to Your Offer',
           `<div>${message}<p>Thank you</p></div>`
         );
       }

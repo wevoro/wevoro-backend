@@ -35,7 +35,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.myTransactions = exports.simulate = exports.confirm = exports.webhook = exports.checkout = exports.packetStatus = void 0;
+exports.receipt = exports.myTransactions = exports.simulate = exports.confirm = exports.webhook = exports.checkout = exports.packetStatus = void 0;
 const http_status_1 = __importDefault(require("http-status"));
 const catchAsync_1 = __importDefault(require("../../../shared/catchAsync"));
 const sendResponse_1 = __importDefault(require("../../../shared/sendResponse"));
@@ -146,6 +146,22 @@ exports.myTransactions = (0, catchAsync_1.default)((req, res) => __awaiter(void 
         statusCode: http_status_1.default.OK,
         success: true,
         message: 'Transactions retrieved successfully',
+        data: result,
+    });
+}));
+/** SCRUM-142/143: the stored WeVoro receipt, for the paying agency or an admin. */
+exports.receipt = (0, catchAsync_1.default)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    const { getReceipt } = yield Promise.resolve().then(() => __importStar(require('./receipt.service')));
+    const result = yield getReceipt({
+        transactionId: req.params.transactionId,
+        userId: currentUserId(req),
+        role: String(((_a = req.user) === null || _a === void 0 ? void 0 : _a.role) || ''),
+    });
+    (0, sendResponse_1.default)(res, {
+        statusCode: http_status_1.default.OK,
+        success: true,
+        message: 'Receipt retrieved successfully',
         data: result,
     });
 }));

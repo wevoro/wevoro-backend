@@ -308,10 +308,16 @@ const getUserByShareId: RequestHandler = catchAsync(
   async (req: Request, res: Response) => {
     const result = await UserService.getUserByShareId(req.params.shareId);
 
+    // SCRUM-133: a real link to a caregiver whose credentials are not all
+    // verified yet is not an error — the page shows "not ready to share" —
+    // so it stays a 200 with { shareable: false } and no profile in it.
     sendResponse<IUser>(res, {
       statusCode: httpStatus.OK,
       success: true,
-      message: 'User profile retrieved successfully!',
+      message:
+        result?.shareable === false
+          ? 'This profile is not ready to share yet'
+          : 'User profile retrieved successfully!',
       data: result,
     });
   }

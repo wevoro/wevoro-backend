@@ -65,6 +65,17 @@ const OfferSchema = new mongoose_1.Schema({
         type: Boolean,
         default: false,
     },
+    // SCRUM-141: 'onboard' marks an offer opened by the agency's Onboard button
+    // (the credentialing flow), as opposed to a scheduling-era job offer.
+    source: {
+        type: String,
+    },
+    // SCRUM-141: when the caregiver finished responding — signed everything
+    // the agency sent, or responded when there was nothing to sign. This is
+    // the signature gate that payment and download wait on.
+    submittedAt: {
+        type: Date,
+    },
 }, {
     timestamps: true,
 });

@@ -33,10 +33,12 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.startCredentialNotificationCron = exports.fireRejectionNotification = exports.evaluateCredentialExpirations = void 0;
+const credentialExpiry_1 = require("../../../helpers/credentialExpiry");
 const documents_model_1 = require("../document/documents.model");
 const notification_model_1 = require("../user/notification.model");
 const personal_info_model_1 = require("../user/personal-info.model");
 const engagement_helper_1 = require("./engagement.helper");
+const credentials_1 = require("../../../constants/credentials");
 // SCRUM-108: email delivery alongside the in-app notification.
 const credential_email_service_1 = require("./credential-email.service");
 /**
@@ -81,12 +83,18 @@ const certificationLabel = (caregiverId) => __awaiter(void 0, void 0, void 0, fu
 });
 /**
  * Check if a notification has already been sent for this credential + type combination
+ *
+ * SCRUM-192: only for the CURRENT expiration lifecycle. A renewal stamps the
+ * previous alerts with `supersededAt` (reviewDocument) rather than deleting
+ * them, so they stay in the caregiver's history; a stamped row belongs to the
+ * lifecycle that ended and must not suppress the new one's alerts.
  */
 const isNotificationAlreadySent = (userId, credentialDocumentId, type) => __awaiter(void 0, void 0, void 0, function* () {
     const existing = yield notification_model_1.Notification.findOne({
         user: userId,
         credentialDocumentId,
         type,
+        supersededAt: { $exists: false },
     });
     return !!existing;
 });
@@ -122,8 +130,9 @@ const fireNotification = (params) => __awaiter(void 0, void 0, void 0, function*
     });
     console.log(`📢 Notification fired: [${type}] to user ${userId} for ${credentialName}`);
     // SCRUM-108: email rides the same trigger, AFTER the dedup guard — so it
-    // inherits dedup for free, and the SCRUM-102 renewal reset (which deletes the
-    // prior notifications) re-arms BOTH channels for the next lifecycle.
+    // inherits dedup for free, and the SCRUM-102 renewal reset (which, since
+    // SCRUM-192, marks the prior notifications superseded instead of deleting
+    // them) re-arms BOTH channels for the next lifecycle.
     if (emailKind) {
         yield (0, credential_email_service_1.sendCredentialEmail)({
             userId,
@@ -149,11 +158,23 @@ const evaluateCredentialExpirations = () => __awaiter(void 0, void 0, void 0, fu
         const now = new Date();
         for (const doc of verifiedDocs) {
             const expirationDate = new Date(doc.credentialExpirationDate);
-            const diffMs = expirationDate.getTime() - now.getTime();
-            const daysUntilExpiration = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+            // SCRUM-169: the same expiry instant as the cards and the share gate.
+            const diffMs = (0, credentialExpiry_1.credentialExpiresAt)(doc.credentialExpirationDate) - now.getTime();
+            if (Number.isNaN(diffMs))
+                continue;
+            // SCRUM-150: the card counts whole days with Math.floor and shows the
+            // remainder as hours and minutes, so a credential 9 days and 14 hours out
+            // reads "9 days" there. Rounding up here made the same credential read
+            // "10 days from today" in the email. Floor, so both say the same number.
+            const daysUntilExpiration = Math.floor(diffMs / (1000 * 60 * 60 * 24));
             const caregiverId = doc.user.toString();
+            // SCRUM-165: the RN/LPN practical sign-off is a 'certifications' row too.
+            // Given an expiry date, it was emailed as "Your PCA Certification
+            // expires", naming the wrong document.
             const credentialName = doc.documentType === 'certifications'
-                ? yield certificationLabel(caregiverId)
+                ? doc.part === 'practical_signoff'
+                    ? credentials_1.PCA_SIGNOFF_LABEL
+                    : yield certificationLabel(caregiverId)
                 : CREDENTIAL_LABELS[doc.documentType] || doc.title || 'Credential';
             const docId = doc._id.toString();
             // Yellow band entry: 60 days (caregiver only)
@@ -164,7 +185,7 @@ const evaluateCredentialExpirations = () => __awaiter(void 0, void 0, void 0, fu
                     type: 'credential_yellow',
                     credentialDocumentId: docId,
                     credentialName,
-                    ctaLink: '/pro/profile#credentials',
+                    ctaLink: '/caregiver/profile#credentials',
                     emailKind: 'yellow',
                     daysUntilExpiration,
                     expiresOn: expirationDate,
@@ -179,7 +200,7 @@ const evaluateCredentialExpirations = () => __awaiter(void 0, void 0, void 0, fu
                     type: 'credential_red',
                     credentialDocumentId: docId,
                     credentialName,
-                    ctaLink: '/pro/profile#credentials',
+                    ctaLink: '/caregiver/profile#credentials',
                     emailKind: 'red',
                     daysUntilExpiration,
                     expiresOn: expirationDate,
@@ -194,7 +215,7 @@ const evaluateCredentialExpirations = () => __awaiter(void 0, void 0, void 0, fu
                         type: 'credential_red',
                         credentialDocumentId: docId,
                         credentialName,
-                        ctaLink: `/partner/pros/${caregiverId}`,
+                        ctaLink: `/agency/caregivers/${caregiverId}`,
                     });
                 }
             }
@@ -206,7 +227,7 @@ const evaluateCredentialExpirations = () => __awaiter(void 0, void 0, void 0, fu
                     type: 'credential_expired',
                     credentialDocumentId: docId,
                     credentialName,
-                    ctaLink: '/pro/profile#credentials',
+                    ctaLink: '/caregiver/profile#credentials',
                     emailKind: 'expired',
                     daysUntilExpiration,
                     expiresOn: expirationDate,
@@ -221,7 +242,7 @@ const evaluateCredentialExpirations = () => __awaiter(void 0, void 0, void 0, fu
                         type: 'credential_expired',
                         credentialDocumentId: docId,
                         credentialName,
-                        ctaLink: `/partner/pros/${caregiverId}`,
+                        ctaLink: `/agency/caregivers/${caregiverId}`,
                     });
                 }
             }
@@ -246,7 +267,7 @@ const fireRejectionNotification = (params) => __awaiter(void 0, void 0, void 0, 
         type: 'credential_rejected',
         credentialDocumentId,
         credentialName,
-        ctaLink: '/pro/profile#credentials',
+        ctaLink: '/caregiver/profile#credentials',
         isRead: false,
     });
     console.log(`📢 Rejection notification fired for ${credentialName} to caregiver ${caregiverId}`);

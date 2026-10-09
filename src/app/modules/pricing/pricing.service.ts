@@ -140,9 +140,19 @@ export const getTransactions = async (params: {
     query.status = params.status;
   }
 
-  const rows = await PacketTransaction.find(query)
-    .sort({ transactionDate: -1 })
-    .lean();
+  const rows = await PacketTransaction.find(query).select('-receiptHtml').lean();
+
+  // SCRUM-143: a transaction's date on the ledger is when the money moved, not
+  // when a checkout was first opened. transactionDate is stamped once, when the
+  // row is created, and an abandoned checkout is deliberately reused rather than
+  // stacked — so a packet started on 11 Sep and paid on 16 Sep kept 11 Sep,
+  // sorted five days deep, and fell off page 1. The agency paid, opened the
+  // ledger, and could not find the payment. paidAt is written by markPaid for
+  // every successful charge, so it is used wherever it exists; unpaid rows keep
+  // the date the attempt started. Computed on read, so existing rows are
+  // corrected without a migration and the stored start date is left intact.
+  const effectiveDate = (t: any) =>
+    t.status === 'paid' && t.paidAt ? t.paidAt : t.transactionDate;
 
   const withNames = await Promise.all(
     rows.map(async (t: any) => ({
@@ -152,7 +162,16 @@ export const getTransactions = async (params: {
       priceChargedCents: t.priceChargedCents,
       currency: t.currency,
       status: t.status,
-      transactionDate: t.transactionDate,
+      // What the table shows and sorts by.
+      transactionDate: effectiveDate(t),
+      // Kept alongside so the difference is inspectable, not lost.
+      startedAt: t.transactionDate,
+      paidAt: t.paidAt ?? null,
+      // SCRUM-143: the stored receipt, so the ledger links straight to it.
+      receiptNumber: t.receiptNumber ?? null,
+      receiptEmailSentAt: t.receiptEmailSentAt ?? null,
+      receiptSentTo: t.receiptSentTo ?? null,
+      stripeTransactionId: t.stripeTransactionId || t.stripePaymentIntentId || null,
     }))
   );
 
@@ -178,9 +197,13 @@ export const getTransactions = async (params: {
     );
   } else if (params.sort === 'amount') {
     sorted.sort((a, b) => b.priceChargedCents - a.priceChargedCents);
+  } else {
+    // Default 'newest', on the effective date. The database sort this used to
+    // lean on ordered by the stored start date, which is the bug above.
+    sorted.sort(
+      (a, b) => +new Date(b.transactionDate) - +new Date(a.transactionDate)
+    );
   }
-  // default 'newest' is already applied by the .sort({ transactionDate: -1 })
-  // on the query above.
 
   const total = sorted.length;
   const start = (page - 1) * limit;

@@ -43,6 +43,11 @@ const FeedbackSchema = new mongoose_1.Schema({
         type: [String],
         default: [],
     },
+    // SCRUM-201: the Cloudinary URL of the screenshot the sender attached.
+    // Absent on feedback sent without one.
+    screenshot: {
+        type: String,
+    },
     isReadByAdmin: {
         type: Boolean,
         default: false,

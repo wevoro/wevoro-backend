@@ -43,6 +43,8 @@ router.post('/checkout/:caregiverId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.
 // it covers the gap before a webhook lands, and the case where one is lost.
 router.post('/confirm/:transactionId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), PaymentController.confirm);
 router.get('/my-transactions', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), PaymentController.myTransactions);
+// SCRUM-142/143: WeVoro's receipt, stored on the transaction.
+router.get('/receipt/:transactionId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER, user_1.ENUM_USER_ROLE.ADMIN, user_1.ENUM_USER_ROLE.SUPER_ADMIN), PaymentController.receipt);
 // QA only. The service refuses this outright once Stripe is configured.
 router.post('/simulate/:transactionId', (0, auth_1.default)(user_1.ENUM_USER_ROLE.PARTNER), PaymentController.simulate);
 exports.PaymentRoutes = router;

@@ -43,6 +43,7 @@ exports.sendCredentialEmail = exports.renderCredentialEmail = void 0;
 const user_model_1 = require("../user/user.model");
 const personal_info_model_1 = require("../user/personal-info.model");
 const sendMail_1 = require("../auth/sendMail");
+const site_context_1 = require("../../middlewares/site-context");
 /** Tokens read from the approved Figma file. */
 const C = {
     green: '#008000',
@@ -63,32 +64,47 @@ const C = {
  * qa.joinhirenza.com, a different product, so every CTA would have sent
  * caregivers to the wrong domain. Set APP_PUBLIC_URL per environment.
  */
-const appUrl = () => (process.env.APP_PUBLIC_URL || 'https://wevoro.com').replace(/\/+$/, '');
+const appUrl = () => (0, site_context_1.publicSiteUrl)();
 const asset = (file) => `${appUrl()}/email/${file}`;
+/**
+ * Where every credential-alert CTA sends the caregiver.
+ *
+ * SCRUM-181: deliberately the legacy /pro address, not the renamed /caregiver
+ * one. These alerts are sent by the daily expiry cron, which has no
+ * caregiver-side request behind it — the site comes from whichever API alias
+ * Vercel's scheduler hit, and that is api.wevoro.com, so every alert links to
+ * the live site no matter which side the caregiver uses. wevoro.com still runs
+ * the pre-SCRUM-144 build: /caregiver/profile returns 404 there (checked
+ * 24 Sep), which is the reported dead button, while /pro/profile is served.
+ * /pro/profile is the one address BOTH builds answer — native on the live
+ * site, and forwarded to /caregiver/profile by the new build's LEGACY_URLS
+ * redirect (next.config.mjs), which carries the #credentials fragment over.
+ * Point this at /caregiver/profile once wevoro.com runs the renamed build.
+ */
 const credentialLink = () => `${appUrl()}/pro/profile#credentials`;
 const SANS = 'Arial,Helvetica,sans-serif';
 /** "1 day", not "1 days". */
 const dayCount = (n) => `${n} ${n === 1 ? 'day' : 'days'}`;
 const SPECS = {
     yellow: {
-        subject: (c) => `Your ${c} expires in 60 days`,
-        eyebrow: 'EXPIRES IN 60 DAYS',
+        subject: (c, days) => `Your ${c} expires in ${dayCount(days)}`,
+        eyebrow: (days) => `EXPIRES IN ${dayCount(days).toUpperCase()}`,
         accent: C.amber,
         emblem: 'emblem-yellow.png',
-        heading: 'Your credential expires in 60 days',
-        intro: () => 'keeping your credentials current keeps you eligible for offers on WeVoro. One of your credentials will expire in 60 days &mdash; you can upload an updated document now so there&rsquo;s no gap in your eligibility. No action is required today.',
+        heading: (days) => `Your credential expires in ${dayCount(days)}`,
+        intro: (days) => `keeping your credentials current keeps you eligible for offers on WeVoro. One of your credentials expires in ${dayCount(days)} &mdash; you can upload an updated document now so there&rsquo;s no gap in your eligibility. No action is required today.`,
         rowLabel: 'EXPIRES',
         rowValue: ({ expiresOn, days }) => `${expiresOn} &middot; ${dayCount(days)} from today`,
         cta: 'View credential',
         note: 'This is an automated alert from WeVoro. No action is needed if you have already uploaded an updated document.',
     },
     red: {
-        subject: (c) => `Your ${c} expires in 30 days`,
-        eyebrow: 'EXPIRES IN 30 DAYS &middot; ACTION NEEDED',
+        subject: (c, days) => `Your ${c} expires in ${dayCount(days)}`,
+        eyebrow: (days) => `EXPIRES IN ${dayCount(days).toUpperCase()} &middot; ACTION NEEDED`,
         accent: C.red,
         emblem: 'emblem-red.png',
-        heading: 'Your credential expires in 30 days',
-        intro: () => 'one of your credentials will expire in 30 days. To stay eligible for offers, please upload an updated document before it expires &mdash; credentials that lapse will pause your eligibility until a valid document is on file.',
+        heading: (days) => `Your credential expires in ${dayCount(days)}`,
+        intro: (days) => `one of your credentials expires in ${dayCount(days)}. To stay eligible for offers, please upload an updated document before it expires &mdash; credentials that lapse will pause your eligibility until a valid document is on file.`,
         rowLabel: 'EXPIRES',
         rowValue: ({ expiresOn, days }) => `${expiresOn} &middot; ${dayCount(days)} from today`,
         cta: 'Upload updated document',
@@ -96,10 +112,10 @@ const SPECS = {
     },
     expired: {
         subject: (c) => `Your ${c} has expired`,
-        eyebrow: 'CREDENTIAL EXPIRED',
+        eyebrow: () => 'CREDENTIAL EXPIRED',
         accent: C.red,
         emblem: 'emblem-expired.png',
-        heading: 'Your credential has expired',
+        heading: () => 'Your credential has expired',
         intro: () => 'one of your credentials expired today, so your profile is now paused for offers that require it. Upload an updated document to restore your eligibility right away.',
         rowLabel: 'EXPIRED ON',
         rowValue: ({ expiresOn }) => expiresOn,
@@ -108,10 +124,10 @@ const SPECS = {
     },
     rejected: {
         subject: (c) => `Your ${c} submission needs attention`,
-        eyebrow: 'ACTION NEEDED',
+        eyebrow: () => 'ACTION NEEDED',
         accent: C.red,
         emblem: 'emblem-rejected.png',
-        heading: 'Your credential submission needs attention',
+        heading: () => 'Your credential submission needs attention',
         intro: () => 'an admin reviewed your recent credential submission and couldn&rsquo;t confirm it for the reason below. Please upload a corrected document so we can complete your verification.',
         rowLabel: 'REASON',
         rowValue: ({ reason }) => reason,
@@ -146,7 +162,7 @@ const renderEmail = (params) => {
     return `<!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escape(s.heading)}</title></head>
+<title>${escape(s.heading(days))}</title></head>
 <body style="margin:0;padding:0;background:${C.pageBg};-webkit-text-size-adjust:100%">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
        style="background:${C.pageBg};padding:20px 12px">
@@ -158,7 +174,7 @@ const renderEmail = (params) => {
     <!-- Header -->
     <tr><td style="background:${C.green};padding:24px 32px">
       <img src="${asset('header-lockup.png')}" width="189" height="41"
-           alt="Wevoro - CNA Professional Platform"
+           alt="Wevoro - Professional Platform for CNAs and PCAs"
            style="display:block;border:0;outline:none;text-decoration:none;height:auto">
     </td></tr>
 
@@ -172,9 +188,9 @@ const renderEmail = (params) => {
         </td></tr>
 
         <tr><td style="font-family:${SANS};font-size:12px;letter-spacing:0.6px;
-            font-weight:bold;color:${s.accent}">${s.eyebrow}</td></tr>
+            font-weight:bold;color:${s.accent}">${s.eyebrow(days)}</td></tr>
         <tr><td style="padding:6px 0 0 0;font-family:${SANS};font-size:22px;line-height:30px;
-            font-weight:bold;color:${C.heading}">${escape(s.heading)}</td></tr>
+            font-weight:bold;color:${C.heading}">${escape(s.heading(days))}</td></tr>
 
         <tr><td style="padding:18px 0 0 0;font-family:${SANS};font-size:14px;line-height:22px;
             color:${C.body}">Hi ${hi}, ${s.intro(days)}</td></tr>
@@ -240,7 +256,7 @@ const sendCredentialEmail = (params) => __awaiter(void 0, void 0, void 0, functi
         // The approved template opens "Hi {{First Name}}," so pull it; fall back to
         // a neutral greeting rather than skipping the send.
         const info = yield personal_info_model_1.PersonalInfo.findOne({ user: userId }).select('firstName');
-        yield (0, sendMail_1.sendEmail)(user.email, SPECS[kind].subject(credentialName), renderEmail({
+        yield (0, sendMail_1.sendEmail)(user.email, SPECS[kind].subject(credentialName, days), renderEmail({
             kind,
             credentialName,
             firstName: info === null || info === void 0 ? void 0 : info.firstName,

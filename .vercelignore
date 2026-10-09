@@ -1,0 +1,37 @@
+# Files that must never be uploaded to Vercel.
+#
+# The Vercel CLI does NOT read .gitignore when it uploads a deployment - only its
+# own built-in list plus this file - so anything kept out of git must be listed
+# here too, or a manual `vercel` deploy ships it anyway.
+#
+# Local environment files. These MUST NOT ship.
+#
+# 9 Oct 2026: two backend builds deployed as Environment=Production were reading
+# the PREVIEW database. The Vercel dashboard variables were right; the uploaded
+# .env won. dotenv loads the file that travels with the bundle, so whatever
+# DATABASE_URL sits in it overrides the dashboard, and the Environment label on
+# a deployment stops meaning anything about which database it talks to. QA spent
+# about an hour on the wrong data, and admin@gmail.com — a super_admin in
+# production, a caregiver in preview — could not log in.
+#
+# `vercel env pull` is what puts a file like .env.vercel here, so this has to
+# hold whatever name it lands under.
+.env
+.env.*
+*.env
+
+# Generated reports, guides, walkthroughs, invoices, proposals and proof screenshots.
+# Root-anchored on purpose: the backend deploys from the committed dist/, so an
+# unanchored rule must never be added here.
+/*.html
+/*.pdf
+/*.png
+/*.jpg
+/*.jpeg
+/*.docx
+/*.xlsx
+/*.csv
+qa-shots/
+qa-evidence/
+qa-regression/
+figma-refs/

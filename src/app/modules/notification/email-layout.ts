@@ -10,6 +10,8 @@
  * and no mail client ships the brand fonts.
  */
 
+import { publicSiteUrl } from '../../middlewares/site-context';
+
 export const EMAIL_COLORS = {
   green: '#008000',
   pageBg: '#F9F9FA',
@@ -28,10 +30,13 @@ export const EMAIL_SANS = 'Arial,Helvetica,sans-serif';
 /**
  * Public base URL for CTA links and email images. Deliberately NOT
  * config.frontend_url — that value is a leftover pointing at
- * qa.joinhirenza.com, a different product. Set APP_PUBLIC_URL per environment.
+ * qa.joinhirenza.com, a different product.
+ *
+ * The site the request came from wins, because one backend serves both
+ * wevoro.com and qa.wevoro.com; APP_PUBLIC_URL is the fallback for work with
+ * no request behind it. See middlewares/site-context.
  */
-export const emailAppUrl = (): string =>
-  (process.env.APP_PUBLIC_URL || 'https://wevoro.com').replace(/\/+$/, '');
+export const emailAppUrl = (): string => publicSiteUrl();
 
 export const emailAsset = (file: string): string => `${emailAppUrl()}/email/${file}`;
 
@@ -48,6 +53,16 @@ export const emailDetailRow = (label: string, value: string, topPad: number): st
   <tr><td style="padding:3px 0 0 0;font-family:${SANS};font-size:14px;line-height:20px;
       color:${C.heading};font-weight:bold">${value}</td></tr>`;
 
+/** A small tinted card: an uppercase label over one line of bold text. */
+export const emailTintCard = (label: string, valueHtml: string): string => `
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+         style="background:#F2FBF6;border:1px solid #CAE9D5;border-radius:12px">
+    <tr><td style="padding:14px 18px">
+      <div style="font-family:${SANS};font-size:11px;letter-spacing:0.4px;color:${C.meta};font-weight:500">${label}</div>
+      <div style="padding:3px 0 0 0;font-family:${SANS};font-size:14px;line-height:20px;color:${C.heading};font-weight:bold">${valueHtml}</div>
+    </td></tr>
+  </table>`;
+
 export interface AlertEmailInput {
   /** Emblem PNG filename under public/email/, e.g. "emblem-yellow.png". */
   emblem: string;
@@ -61,6 +76,8 @@ export interface AlertEmailInput {
   intro: string;
   /** Pre-rendered rows (emailDetailRow) for the grey card; empty hides it. */
   detailRowsHtml: string;
+  /** Optional second card, drawn between the detail card and the CTA. */
+  extraHtml?: string;
   cta: string;
   ctaHref: string;
   note: string;
@@ -82,7 +99,7 @@ export const renderAlertEmail = (p: AlertEmailInput): string => `<!doctype html>
     <!-- Header -->
     <tr><td style="background:${C.green};padding:24px 32px">
       <img src="${emailAsset('header-lockup.png')}" width="189" height="41"
-           alt="Wevoro - CNA Professional Platform"
+           alt="Wevoro - Professional Platform for CNAs and PCAs"
            style="display:block;border:0;outline:none;text-decoration:none;height:auto">
     </td></tr>
 
@@ -115,6 +132,8 @@ export const renderAlertEmail = (p: AlertEmailInput): string => `<!doctype html>
           </table>
         </td></tr>`
           : ''}
+
+        ${p.extraHtml ? `<tr><td style="padding:12px 0 0 0">${p.extraHtml}</td></tr>` : ''}
 
         <!-- CTA -->
         <tr><td style="padding:18px 0 0 0">

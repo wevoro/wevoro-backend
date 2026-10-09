@@ -4,6 +4,7 @@ import cors from 'cors';
 import express, { Application, NextFunction, Request, Response } from 'express';
 import httpStatus from 'http-status';
 import globalErrorHandler from './app/middlewares/globalErrorHandler';
+import { siteContext } from './app/middlewares/site-context';
 import routes from './app/routes';
 
 import compression from 'compression';
@@ -14,6 +15,11 @@ app.use(compression());
 app.use(cors());
 app.use(cors());
 app.use(cookieParser());
+
+// Remembers which site (wevoro.com or qa.wevoro.com) this request came from,
+// so the links in any email it sends point back there. Mounted before the
+// Stripe webhook, because the receipt is sent from inside it.
+app.use(siteContext);
 
 // SCRUM-115: the Stripe webhook must be mounted BEFORE the JSON parser below.
 // Signature verification hashes the exact bytes Stripe sent, and once

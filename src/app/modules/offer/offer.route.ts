@@ -12,6 +12,17 @@ router.post(
   auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.ADMIN),
   OfferController.createOrUpdateOffer
 );
+// SCRUM-141: Onboard → Respond → Submitted
+router.post(
+  '/onboard/:caregiverId',
+  auth(ENUM_USER_ROLE.PARTNER),
+  OfferController.onboardCaregiver
+);
+router.get(
+  '/onboard-status/:caregiverId',
+  auth(ENUM_USER_ROLE.PARTNER),
+  OfferController.getOnboardStatus
+);
 router.post(
   '/upload/:id',
   auth(ENUM_USER_ROLE.PRO, ENUM_USER_ROLE.ADMIN),

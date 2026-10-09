@@ -34,6 +34,12 @@ const NotificationSchema = new Schema<any>(
         'esign_completed',
         'esign_replaced',
         'esign_added',
+        // SCRUM-141: Onboard → Respond → Submitted
+        'onboard_request',
+        'onboard_submitted',
+        // SCRUM-210: the caregiver replaced a credential inside an agency's
+        // paid 30-day window, so the agency is told which one changed.
+        'credential_updated',
       ],
       default: 'general',
     },
@@ -49,6 +55,15 @@ const NotificationSchema = new Schema<any>(
     // SCRUM-65: Deep-link URL for notification CTA
     ctaLink: {
       type: String,
+    },
+    // SCRUM-192: when a renewal ended the lifecycle this notification belongs
+    // to. The row is kept — it is the caregiver's record that the credential
+    // once entered that band — but a superseded row no longer answers the
+    // dedup check in credential-notification.service, so the renewed
+    // credential can fire its own Yellow/Red/Expired alerts. Unset means "this
+    // is the current lifecycle", which is what every pre-SCRUM-192 row is.
+    supersededAt: {
+      type: Date,
     },
   },
   {

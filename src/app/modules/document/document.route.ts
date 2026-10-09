@@ -38,6 +38,47 @@ router.patch(
   DocumentController.reviewDocument
 );
 
+// Admin: AI reads the credential and pre-fills the confirmation form.
+router.post(
+  '/:documentId/ai-extract',
+  auth(ENUM_USER_ROLE.ADMIN),
+  DocumentController.aiExtractCredential
+);
+
+// Admin: how much of the review the AI is allowed to do. Declared before any
+// '/:param' route so "ai-settings" is never read as a document id.
+router.get(
+  '/ai-settings',
+  auth(ENUM_USER_ROLE.ADMIN),
+  DocumentController.getCredentialAiSettings
+);
+router.patch(
+  '/ai-settings',
+  auth(ENUM_USER_ROLE.ADMIN),
+  DocumentController.updateCredentialAiSettings
+);
+
+// Admin "Run AI check": read and decide every credential of one caregiver.
+router.post(
+  '/ai-review/user/:userId',
+  auth(ENUM_USER_ROLE.ADMIN),
+  DocumentController.aiReviewUser
+);
+
+// SCRUM-130: viewing a credential is free. Streams the file inline through the
+// server so the agency never receives the unsigned CDN url that the paid
+// download sells. Declared before any '/:param' GET so it cannot be shadowed.
+router.get(
+  '/view/:documentId',
+  auth(
+    ENUM_USER_ROLE.PARTNER,
+    ENUM_USER_ROLE.PRO,
+    ENUM_USER_ROLE.ADMIN,
+    ENUM_USER_ROLE.SUPER_ADMIN
+  ),
+  DocumentController.viewDocument
+);
+
 // Get credential status for a user.
 // SECURITY (SCRUM-109): this was previously unauthenticated ("public for agency
 // view"). It bypasses filterVisibleDocuments, so anyone who knew a userId could
@@ -70,6 +111,21 @@ router.get(
   '/download-package/:caregiverUserId',
   auth(ENUM_USER_ROLE.PARTNER),
   DocumentController.getDownloadPackage
+);
+
+// SCRUM-67 Scenario 2: the package as one zip. The per-file loop it replaces
+// only ever delivered the first document.
+router.get(
+  '/download-package-zip/:caregiverUserId',
+  auth(ENUM_USER_ROLE.PARTNER),
+  DocumentController.getDownloadPackageZip
+);
+
+// SCRUM-119 (A10): one signed document from a paid packet.
+router.get(
+  '/download-signed/:caregiverUserId/:itemId',
+  auth(ENUM_USER_ROLE.PARTNER),
+  DocumentController.downloadSignedDocument
 );
 
 // SCRUM-119: locked/unlocked file list for the documents modal. Free to view —

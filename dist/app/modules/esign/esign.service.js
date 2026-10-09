@@ -1,4 +1,27 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -265,7 +288,7 @@ const issueToOpenPackets = (agencyId, role, docs) => __awaiter(void 0, void 0, v
             message: `<strong>${added.length === 1 ? 'A new document needs your signature' : `${added.length} new documents need your signature`}</strong><br />` +
                 `${agencyName} added ${added.length === 1 ? added[0].title : `${added.length} documents`} to your onboarding.`,
             type: 'esign_added',
-            ctaLink: '/pro/offers',
+            ctaLink: '/caregiver/offers',
             isRead: false,
         });
     }
@@ -373,7 +396,7 @@ const replaceDocument = (agencyId, documentId, file) => __awaiter(void 0, void 0
             message: `<strong>This document was updated</strong><br />` +
                 `Your agency sent a newer version. The previous copy is no longer valid — please sign the updated document below.`,
             type: 'esign_replaced',
-            ctaLink: '/pro/offers',
+            ctaLink: '/caregiver/offers',
             isRead: false,
         });
         yield (0, esign_email_service_1.sendDocumentReplacedEmail)({
@@ -644,48 +667,30 @@ const signItem = (params) => __awaiter(void 0, void 0, void 0, function* () {
     if (allSigned) {
         const caregiverName = yield displayName(String(packet.caregiver));
         const count = packet.items.filter((i) => i.status === 'signed').length;
-        yield notification_model_1.Notification.create({
-            user: packet.agency,
-            message: `<strong>${caregiverName}</strong> signed all ${count} ${packet.role} documents.`,
-            type: 'esign_completed',
-            ctaLink: '/partner/onboardings',
-            isRead: false,
-        });
-        // Package everything and deliver it. The agency gets the ZIP attached to
-        // the completion email AND a copy stored on the packet, so it stays
-        // reachable from their account after the email is gone.
-        let pkg = null;
+        // Keep a packaged copy on the packet for the record.
         try {
             const files = packet.items
                 .filter((i) => i.status === 'signed' && i.signedFileUrl)
                 .map((i) => ({ title: i.title, url: i.signedFileUrl }));
             if (files.length) {
-                pkg = yield (0, esign_document_service_1.buildPackage)({ caregiverName, role: packet.role, files });
+                const pkg = yield (0, esign_document_service_1.buildPackage)({ caregiverName, role: packet.role, files });
                 packet.packageUrl = pkg.url;
-                packet.packageSentAt = new Date();
                 yield packet.save();
             }
         }
         catch (err) {
             console.error('[esign] could not build the signed package:', err === null || err === void 0 ? void 0 : err.message);
         }
-        if (pkg) {
-            yield (0, esign_email_service_1.sendSignedPackageEmail)({
-                agencyId: String(packet.agency),
-                caregiverName,
-                role: packet.role,
-                count,
-                zip: { filename: pkg.fileName, content: pkg.bytes },
-            });
-        }
-        else {
-            yield (0, esign_email_service_1.sendSigningCompleteEmail)({
-                agencyId: String(packet.agency),
-                caregiverName,
-                role: packet.role,
-                count,
-            });
-        }
+        // SCRUM-141: signing everything IS the caregiver's response. Mark the offer
+        // submitted, which opens payment and download for the agency, and tell the
+        // agency. The signed copies are no longer emailed as an attachment: they
+        // ship inside the credential package the agency pays for, as one bundle.
+        const { markOfferSubmitted } = yield Promise.resolve().then(() => __importStar(require('../offer/onboarding.service')));
+        yield markOfferSubmitted({
+            offerId: String(packet.offer),
+            at: packet.completedAt,
+            signedCount: count,
+        });
     }
     return packet;
 });
@@ -718,7 +723,7 @@ const runSigningReminders = () => __awaiter(void 0, void 0, void 0, function* ()
             user: packet.caregiver,
             message: `<strong>${agencyName}</strong> is waiting on your signature on ${pendingCount} ${pendingCount === 1 ? 'document' : 'documents'}. It only takes a minute to finish.`,
             type: 'esign_reminder',
-            ctaLink: '/pro/offers',
+            ctaLink: '/caregiver/offers',
             isRead: false,
         });
         yield (0, esign_email_service_1.sendSignatureReminderEmail)({

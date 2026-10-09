@@ -22,7 +22,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendOfferReceivedEmail = exports.sendSignedPackageEmail = exports.sendSigningCompleteEmail = exports.sendDocumentReplacedEmail = exports.sendSignatureReminderEmail = void 0;
+exports.sendOnboardSubmittedEmail = exports.sendOnboardRequestEmail = exports.sendOfferReceivedEmail = exports.sendSignedPackageEmail = exports.sendSigningCompleteEmail = exports.sendDocumentReplacedEmail = exports.sendSignatureReminderEmail = void 0;
 const user_model_1 = require("../user/user.model");
 const personal_info_model_1 = require("../user/personal-info.model");
 const sendMail_1 = require("../auth/sendMail");
@@ -70,7 +70,7 @@ const sendSignatureReminderEmail = (params) => __awaiter(void 0, void 0, void 0,
         detailRowsHtml: (0, email_layout_1.emailDetailRow)('DOCUMENTS', `${n} ${docWord} (${(0, email_layout_1.escapeHtml)(role)})`, 0) +
             (0, email_layout_1.emailDetailRow)('FROM', agency, 14),
         cta: 'Review &amp; sign documents',
-        ctaHref: `${(0, email_layout_1.emailAppUrl)()}/pro/offers`,
+        ctaHref: `${(0, email_layout_1.emailAppUrl)()}/caregiver/offers`,
         note: `This is reminder ${reminderNumber} of your signature request. You&rsquo;ll stop receiving these once all documents are signed.`,
         footerLine: `Sent securely via SignWell on behalf of ${agency}.`,
     });
@@ -90,7 +90,7 @@ const sendDocumentReplacedEmail = (params) => __awaiter(void 0, void 0, void 0, 
         detailRowsHtml: (0, email_layout_1.emailDetailRow)('DOCUMENT', (0, email_layout_1.escapeHtml)(documentTitle), 0) +
             (0, email_layout_1.emailDetailRow)('AGENCY', (0, email_layout_1.escapeHtml)(agencyName), 14),
         cta: 'Review & sign new version',
-        ctaHref: `${(0, email_layout_1.emailAppUrl)()}/pro/offers`,
+        ctaHref: `${(0, email_layout_1.emailAppUrl)()}/caregiver/offers`,
         note: 'This is an automated alert from WeVoro.',
         footerLine: CAREGIVER_FOOTER,
     });
@@ -111,7 +111,7 @@ const sendSigningCompleteEmail = (params) => __awaiter(void 0, void 0, void 0, f
         detailRowsHtml: (0, email_layout_1.emailDetailRow)('CAREGIVER', (0, email_layout_1.escapeHtml)(caregiverName), 0) +
             (0, email_layout_1.emailDetailRow)('SIGNED', `${count} of ${count} ${docWord}`, 14),
         cta: 'View caregiver',
-        ctaHref: `${(0, email_layout_1.emailAppUrl)()}/partner/onboardings`,
+        ctaHref: `${(0, email_layout_1.emailAppUrl)()}/agency/onboardings`,
         note: 'This is an automated alert from WeVoro.',
         footerLine: AGENCY_FOOTER,
     });
@@ -139,7 +139,7 @@ const sendSignedPackageEmail = (params) => __awaiter(void 0, void 0, void 0, fun
             (0, email_layout_1.emailDetailRow)('SIGNED', `${count} of ${count} ${docWord}`, 14) +
             (0, email_layout_1.emailDetailRow)('ATTACHED', (0, email_layout_1.escapeHtml)(zip.filename), 14),
         cta: 'View caregiver',
-        ctaHref: `${(0, email_layout_1.emailAppUrl)()}/partner/onboardings`,
+        ctaHref: `${(0, email_layout_1.emailAppUrl)()}/agency/onboardings`,
         note: 'Each signed document carries a certificate page recording who signed it, when, and from where.',
         footerLine: AGENCY_FOOTER,
     });
@@ -175,10 +175,89 @@ const sendOfferReceivedEmail = (params) => __awaiter(void 0, void 0, void 0, fun
         intro: `you have a new offer waiting on WeVoro.${extra}`,
         detailRowsHtml: (0, email_layout_1.emailDetailRow)('FROM', (0, email_layout_1.escapeHtml)(agencyName), 0),
         cta: 'View offer',
-        ctaHref: `${(0, email_layout_1.emailAppUrl)()}/pro/offers`,
+        ctaHref: `${(0, email_layout_1.emailAppUrl)()}/caregiver/offers`,
         note: 'This is an automated alert from WeVoro.',
         footerLine: CAREGIVER_FOOTER,
     });
     yield deliver(caregiverId, `${agencyName} sent you an offer on WeVoro`, html, 'offer-received');
 });
 exports.sendOfferReceivedEmail = sendOfferReceivedEmail;
+/**
+ * SCRUM-141: the agency clicked Onboard. Replaces the offer-received email for
+ * the credentialing flow, in the new terms (Onboard / Respond).
+ */
+const sendOnboardRequestEmail = (params) => __awaiter(void 0, void 0, void 0, function* () {
+    const { caregiverId, agencyName, signCount } = params;
+    const docWord = signCount === 1 ? 'document' : 'documents';
+    const html = (0, email_layout_1.renderAlertEmail)({
+        emblem: 'emblem-offer.png',
+        eyebrow: 'ONBOARDING REQUEST',
+        accent: email_layout_1.EMAIL_COLORS.green,
+        heading: `${agencyName} wants to onboard you`,
+        greetingName: yield firstNameOf(caregiverId),
+        intro: signCount > 0
+            ? `${(0, email_layout_1.escapeHtml)(agencyName)} would like to onboard you on WeVoro. Respond by signing ${signCount} ${docWord} &mdash; it only takes a couple of minutes. They can download your credentials only after you respond.`
+            : `${(0, email_layout_1.escapeHtml)(agencyName)} would like to onboard you on WeVoro. Respond to share your confirmed credentials with them. They can download your credentials only after you respond.`,
+        detailRowsHtml: (0, email_layout_1.emailDetailRow)('FROM', (0, email_layout_1.escapeHtml)(agencyName), 0) +
+            (signCount > 0 ? (0, email_layout_1.emailDetailRow)('TO SIGN', `${signCount} ${docWord}`, 14) : ''),
+        cta: 'Respond',
+        ctaHref: `${(0, email_layout_1.emailAppUrl)()}/caregiver/offers?tab=received`,
+        note: 'This is an automated alert from WeVoro.',
+        footerLine: CAREGIVER_FOOTER,
+    });
+    yield deliver(caregiverId, `${agencyName} wants to onboard you on WeVoro`, html, 'onboard-request');
+});
+exports.sendOnboardRequestEmail = sendOnboardRequestEmail;
+/**
+ * SCRUM-141: the caregiver responded (and signed, when there was anything to
+ * sign). The package is not attached: the signed documents now ship with the
+ * credential package, once the agency has paid for it.
+ */
+const sendOnboardSubmittedEmail = (params) => __awaiter(void 0, void 0, void 0, function* () {
+    const { agencyId, caregiverId, caregiverName, signedCount } = params;
+    const role = params.caregiverRole || 'CNA';
+    const docWord = signedCount === 1 ? 'document' : 'documents';
+    const name = (0, email_layout_1.escapeHtml)(caregiverName);
+    const signedOn = new Date(params.signedAt || Date.now()).toLocaleDateString('en-US', {
+        timeZone: 'America/New_York',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+    });
+    // Lazy: keeps the pricing module out of the esign cold path.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { getCurrentPriceCents } = require('../pricing/pricing.service');
+    const priceCents = yield getCurrentPriceCents().catch(() => null);
+    const price = priceCents === null ? 'package' : `$${(priceCents / 100).toFixed(2).replace(/\.00$/, '')}`;
+    // A5 (Faisal's agency flow): SIGNING COMPLETE.
+    const html = (0, email_layout_1.renderAlertEmail)({
+        emblem: 'emblem-complete.png',
+        eyebrow: signedCount > 0 ? 'SIGNING COMPLETE' : 'RESPONSE SUBMITTED',
+        accent: email_layout_1.EMAIL_COLORS.green,
+        heading: signedCount > 0
+            ? `${caregiverName} signed your documents`
+            : `${caregiverName} responded to your onboarding`,
+        greetingName: yield firstNameOf(agencyId),
+        intro: 
+        // SCRUM-188: the same "all 1 document" problem the in-app notice had.
+        signedCount === 1
+            ? `${name} has signed the document you sent. Their credential package is now ready &mdash; download it from their profile on Wevoro.`
+            : signedCount > 1
+                ? `${name} has signed all ${signedCount} ${docWord} you sent. Their credential package is now ready &mdash; download it from their profile on Wevoro.`
+                : `${name} responded to your onboarding. Their credential package is now ready &mdash; download it from their profile on Wevoro.`,
+        detailRowsHtml: (signedCount > 0
+            ? (0, email_layout_1.emailDetailRow)('DOCUMENTS', `${signedCount} ${docWord} &middot; signed ${(0, email_layout_1.escapeHtml)(signedOn)}`, 0)
+            : '') +
+            (0, email_layout_1.emailDetailRow)('CAREGIVER', `${name} &middot; ${(0, email_layout_1.escapeHtml)(role)}`, signedCount > 0 ? 14 : 0),
+        cta: 'Download credential package',
+        ctaHref: `${(0, email_layout_1.emailAppUrl)()}/agency/caregivers/${caregiverId}`,
+        note: priceCents === null
+            ? 'The package fee is charged when you download. Re-downloads are free.'
+            : `The ${price} package fee is charged when you download. Re-downloads are free.`,
+        footerLine: AGENCY_FOOTER,
+    });
+    yield deliver(agencyId, signedCount > 0
+        ? `${caregiverName} signed your documents`
+        : `${caregiverName} responded to your onboarding`, html, 'onboard-submitted');
+});
+exports.sendOnboardSubmittedEmail = sendOnboardSubmittedEmail;

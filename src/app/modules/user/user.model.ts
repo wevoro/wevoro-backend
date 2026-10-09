@@ -87,6 +87,10 @@ const UserSchema = new Schema<IUser, UserModel>(
       enum: ['verified', 'failed', 'not_verified'],
       default: 'not_verified',
     },
+    // SCRUM-151: when an admin decided the background check. The panel used to
+    // print the user's last-updated time as "APPROVED ON", which moved every
+    // time anything else on the account changed.
+    backgroundCheckUpdatedAt: { type: Date },
     shareId: {
       type: String,
       unique: true,

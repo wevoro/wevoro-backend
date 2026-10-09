@@ -11,7 +11,8 @@
  * and no mail client ships the brand fonts.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.renderAlertEmail = exports.emailDetailRow = exports.escapeHtml = exports.emailAsset = exports.emailAppUrl = exports.EMAIL_SANS = exports.EMAIL_COLORS = void 0;
+exports.renderAlertEmail = exports.emailTintCard = exports.emailDetailRow = exports.escapeHtml = exports.emailAsset = exports.emailAppUrl = exports.EMAIL_SANS = exports.EMAIL_COLORS = void 0;
+const site_context_1 = require("../../middlewares/site-context");
 exports.EMAIL_COLORS = {
     green: '#008000',
     pageBg: '#F9F9FA',
@@ -28,9 +29,13 @@ exports.EMAIL_SANS = 'Arial,Helvetica,sans-serif';
 /**
  * Public base URL for CTA links and email images. Deliberately NOT
  * config.frontend_url — that value is a leftover pointing at
- * qa.joinhirenza.com, a different product. Set APP_PUBLIC_URL per environment.
+ * qa.joinhirenza.com, a different product.
+ *
+ * The site the request came from wins, because one backend serves both
+ * wevoro.com and qa.wevoro.com; APP_PUBLIC_URL is the fallback for work with
+ * no request behind it. See middlewares/site-context.
  */
-const emailAppUrl = () => (process.env.APP_PUBLIC_URL || 'https://wevoro.com').replace(/\/+$/, '');
+const emailAppUrl = () => (0, site_context_1.publicSiteUrl)();
 exports.emailAppUrl = emailAppUrl;
 const emailAsset = (file) => `${(0, exports.emailAppUrl)()}/email/${file}`;
 exports.emailAsset = emailAsset;
@@ -45,6 +50,16 @@ const emailDetailRow = (label, value, topPad) => `
   <tr><td style="padding:3px 0 0 0;font-family:${SANS};font-size:14px;line-height:20px;
       color:${C.heading};font-weight:bold">${value}</td></tr>`;
 exports.emailDetailRow = emailDetailRow;
+/** A small tinted card: an uppercase label over one line of bold text. */
+const emailTintCard = (label, valueHtml) => `
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+         style="background:#F2FBF6;border:1px solid #CAE9D5;border-radius:12px">
+    <tr><td style="padding:14px 18px">
+      <div style="font-family:${SANS};font-size:11px;letter-spacing:0.4px;color:${C.meta};font-weight:500">${label}</div>
+      <div style="padding:3px 0 0 0;font-family:${SANS};font-size:14px;line-height:20px;color:${C.heading};font-weight:bold">${valueHtml}</div>
+    </td></tr>
+  </table>`;
+exports.emailTintCard = emailTintCard;
 const renderAlertEmail = (p) => `<!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -60,7 +75,7 @@ const renderAlertEmail = (p) => `<!doctype html>
     <!-- Header -->
     <tr><td style="background:${C.green};padding:24px 32px">
       <img src="${(0, exports.emailAsset)('header-lockup.png')}" width="189" height="41"
-           alt="Wevoro - CNA Professional Platform"
+           alt="Wevoro - Professional Platform for CNAs and PCAs"
            style="display:block;border:0;outline:none;text-decoration:none;height:auto">
     </td></tr>
 
@@ -93,6 +108,8 @@ const renderAlertEmail = (p) => `<!doctype html>
           </table>
         </td></tr>`
     : ''}
+
+        ${p.extraHtml ? `<tr><td style="padding:12px 0 0 0">${p.extraHtml}</td></tr>` : ''}
 
         <!-- CTA -->
         <tr><td style="padding:18px 0 0 0">

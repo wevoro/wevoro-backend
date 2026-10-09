@@ -38,6 +38,17 @@ const professional_info_model_1 = require("../user/professional-info.model");
 const user_model_1 = require("../user/user.model");
 const credentialing_service_1 = require("../credentialing/credentialing.service");
 const sendMail_1 = require("./sendMail");
+/**
+ * SCRUM-144: roles are stored as 'pro' / 'partner', but people only ever see
+ * "caregiver" and "agency". Used in messages shown to the user.
+ */
+const roleLabel = (role) => role === 'pro'
+    ? 'a caregiver'
+    : role === 'partner'
+        ? 'an agency'
+        : role === 'admin' || role === 'super_admin'
+            ? 'an admin'
+            : 'a different';
 const loginUser = (payload) => __awaiter(void 0, void 0, void 0, function* () {
     const { email, password, source } = payload;
     const isUserExist = yield user_model_1.User.isUserExist(email);
@@ -47,7 +58,7 @@ const loginUser = (payload) => __awaiter(void 0, void 0, void 0, function* () {
         (source === user_1.ENUM_USER_ROLE.ADMIN &&
             (isUserExist === null || isUserExist === void 0 ? void 0 : isUserExist.role) === user_1.ENUM_USER_ROLE.SUPER_ADMIN);
     if (isUserExist && !roleMatchesSource) {
-        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, `This account is associated with ${isUserExist.role}! Login as ${isUserExist.role} instead.`);
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, `This is ${roleLabel(isUserExist.role)} account. Please log in as ${roleLabel(isUserExist.role)} instead.`);
     }
     // console.log('🚀 ~ loginUser ~ isUserExist:', isUserExist);
     const isGoogleUser = yield user_model_1.User.isGoogleUser(payload.email);
@@ -85,7 +96,11 @@ const loginUser = (payload) => __awaiter(void 0, void 0, void 0, function* () {
     if (role === user_1.ENUM_USER_ROLE.PRO) {
         const professionalInfo = yield professional_info_model_1.ProfessionalInfo.findOne({ user: _id });
         // SCRUM-93: score every required credential, not just driver_license/tb_tests.
-        const documents = yield documents_model_1.Documents.find({ user: _id });
+        // SCRUM-176: oldest first, for the reason the document queries carry it —
+        // calculateProCompletion keeps the LAST row of each type, so an unsorted
+        // query left the percentage to whatever order the database returned.
+        // createdAt ascending is that effective order today; no score moves.
+        const documents = yield documents_model_1.Documents.find({ user: _id }).sort({ createdAt: 1 });
         returnData.completionPercentage = (0, calculateProCompletion_1.calculateProCompletion)(personalInfo, professionalInfo, documents);
     }
     if (role === user_1.ENUM_USER_ROLE.PARTNER) {
@@ -110,10 +125,12 @@ const loginWithGoogle = (payload) => __awaiter(void 0, void 0, void 0, function*
     const isUserExist = yield user_model_1.User.isUserExist(email);
     const isGoogleUser = yield user_model_1.User.isGoogleUser(email);
     if (isGoogleUser && source !== (isGoogleUser === null || isGoogleUser === void 0 ? void 0 : isGoogleUser.role)) {
-        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, `This account is associated with ${isGoogleUser === null || isGoogleUser === void 0 ? void 0 : isGoogleUser.role}! Login as ${isGoogleUser === null || isGoogleUser === void 0 ? void 0 : isGoogleUser.role} instead.`);
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, `This is ${roleLabel(isGoogleUser === null || isGoogleUser === void 0 ? void 0 : isGoogleUser.role)} account. Please log in as ${roleLabel(isGoogleUser === null || isGoogleUser === void 0 ? void 0 : isGoogleUser.role)} instead.`);
     }
     if (isUserExist) {
-        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'User already exists with email!');
+        // A password account with this email: Google sign-in cannot take it over.
+        // The old message ("User already exists with email!") read like a bug.
+        throw new ApiError_1.default(http_status_1.default.BAD_REQUEST, 'This email already has a password account on WeVoro. Please log in with your email and password, or choose a different Google account.');
     }
     console.log({ isUserExist });
     if (isGoogleUser &&
@@ -141,7 +158,11 @@ const loginWithGoogle = (payload) => __awaiter(void 0, void 0, void 0, function*
     if (role === user_1.ENUM_USER_ROLE.PRO) {
         const professionalInfo = yield professional_info_model_1.ProfessionalInfo.findOne({ user: _id });
         // SCRUM-93: score every required credential, not just driver_license/tb_tests.
-        const documents = yield documents_model_1.Documents.find({ user: _id });
+        // SCRUM-176: oldest first, for the reason the document queries carry it —
+        // calculateProCompletion keeps the LAST row of each type, so an unsorted
+        // query left the percentage to whatever order the database returned.
+        // createdAt ascending is that effective order today; no score moves.
+        const documents = yield documents_model_1.Documents.find({ user: _id }).sort({ createdAt: 1 });
         returnData.completionPercentage = (0, calculateProCompletion_1.calculateProCompletion)(personalInfo, professionalInfo, documents);
     }
     if (role === user_1.ENUM_USER_ROLE.PARTNER) {

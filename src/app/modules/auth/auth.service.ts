@@ -33,6 +33,19 @@ import {
 } from './auth.interface';
 import { sendEmail } from './sendMail';
 
+/**
+ * SCRUM-144: roles are stored as 'pro' / 'partner', but people only ever see
+ * "caregiver" and "agency". Used in messages shown to the user.
+ */
+const roleLabel = (role?: string): string =>
+  role === 'pro'
+    ? 'a caregiver'
+    : role === 'partner'
+      ? 'an agency'
+      : role === 'admin' || role === 'super_admin'
+        ? 'an admin'
+        : 'a different';
+
 const loginUser = async (payload: ILoginUser): Promise<ILoginUserResponse> => {
   const { email, password, source } = payload;
 
@@ -48,7 +61,7 @@ const loginUser = async (payload: ILoginUser): Promise<ILoginUserResponse> => {
   if (isUserExist && !roleMatchesSource) {
     throw new ApiError(
       httpStatus.BAD_REQUEST,
-      `This account is associated with ${isUserExist.role}! Login as ${isUserExist.role} instead.`
+      `This is ${roleLabel(isUserExist.role)} account. Please log in as ${roleLabel(isUserExist.role)} instead.`
     );
   }
 
@@ -117,7 +130,11 @@ const loginUser = async (payload: ILoginUser): Promise<ILoginUserResponse> => {
   if (role === ENUM_USER_ROLE.PRO) {
     const professionalInfo = await ProfessionalInfo.findOne({ user: _id });
     // SCRUM-93: score every required credential, not just driver_license/tb_tests.
-    const documents = await Documents.find({ user: _id });
+    // SCRUM-176: oldest first, for the reason the document queries carry it —
+    // calculateProCompletion keeps the LAST row of each type, so an unsorted
+    // query left the percentage to whatever order the database returned.
+    // createdAt ascending is that effective order today; no score moves.
+    const documents = await Documents.find({ user: _id }).sort({ createdAt: 1 });
 
     returnData.completionPercentage = calculateProCompletion(
       personalInfo,
@@ -160,14 +177,16 @@ const loginWithGoogle = async (
   if (isGoogleUser && source !== isGoogleUser?.role) {
     throw new ApiError(
       httpStatus.BAD_REQUEST,
-      `This account is associated with ${isGoogleUser?.role}! Login as ${isGoogleUser?.role} instead.`
+      `This is ${roleLabel(isGoogleUser?.role)} account. Please log in as ${roleLabel(isGoogleUser?.role)} instead.`
     );
   }
 
   if (isUserExist) {
+    // A password account with this email: Google sign-in cannot take it over.
+    // The old message ("User already exists with email!") read like a bug.
     throw new ApiError(
       httpStatus.BAD_REQUEST,
-      'User already exists with email!'
+      'This email already has a password account on WeVoro. Please log in with your email and password, or choose a different Google account.'
     );
   }
 
@@ -217,7 +236,11 @@ const loginWithGoogle = async (
   if (role === ENUM_USER_ROLE.PRO) {
     const professionalInfo = await ProfessionalInfo.findOne({ user: _id });
     // SCRUM-93: score every required credential, not just driver_license/tb_tests.
-    const documents = await Documents.find({ user: _id });
+    // SCRUM-176: oldest first, for the reason the document queries carry it —
+    // calculateProCompletion keeps the LAST row of each type, so an unsorted
+    // query left the percentage to whatever order the database returned.
+    // createdAt ascending is that effective order today; no score moves.
+    const documents = await Documents.find({ user: _id }).sort({ createdAt: 1 });
 
     returnData.completionPercentage = calculateProCompletion(
       personalInfo,
